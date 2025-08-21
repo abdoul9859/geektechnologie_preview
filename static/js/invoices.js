@@ -751,82 +751,142 @@ function changePage(page) {
 
 // Ouvrir le modal pour nouvelle facture
 function openInvoiceModal() {
-    document.getElementById('invoiceModalTitle').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Nouvelle Facture';
-    document.getElementById('invoiceForm').reset();
-    document.getElementById('invoiceId').value = '';
-    try { document.getElementById('invoiceForm').dataset.quotationId = ''; } catch(e) {}
-    setDefaultDates();
-    
-    // Générer un numéro de facture automatique
-    const nextNumber = generateNumber('FAC-', invoices.length);
-    document.getElementById('invoiceNumber').value = nextNumber;
-    
-    // Démarrer avec une liste vide; l'utilisateur scanne pour ajouter
-    invoiceItems = [];
-    // Réinitialiser les quantités de devis
-    quoteQtyByProductId = new Map();
-    updateInvoiceItemsDisplay();
-    // Reset méthode de paiement
     try {
-        const pmSel = document.getElementById('invoicePaymentMethod');
-        if (pmSel) pmSel.value = '';
-    } catch (e) {}
-    // Defaults for TVA UI
-    const taxSwitch = document.getElementById('showTaxSwitch');
-    const taxRateInput = document.getElementById('taxRateInput');
-    if (taxSwitch) taxSwitch.checked = true;
-    if (taxRateInput) taxRateInput.value = 18;
-    // Ensure listeners are bound in case modal was created after initial setup
-    setupTaxControls();
-    calculateTotals();
-
-    // Recharger les méthodes de paiement lors de l'ouverture du modal
-    populatePaymentMethodSelects(true);
-
-    // Setup signature pad
-    try {
-        const canvas = document.getElementById('signatureCanvas');
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            let drawing = false; let last = null;
-            const getPos = (e) => {
-                const rect = canvas.getBoundingClientRect();
-                const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-                const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-                return { x, y };
-            };
-            const start = (e) => { drawing = true; last = getPos(e); };
-            const move = (e) => {
-                if (!drawing) return;
-                const pos = getPos(e);
-                ctx.beginPath();
-                ctx.moveTo(last.x, last.y);
-                ctx.lineTo(pos.x, pos.y);
-                ctx.strokeStyle = '#111';
-                ctx.lineWidth = 2;
-                ctx.lineCap = 'round';
-                ctx.stroke();
-                last = pos;
-                e.preventDefault();
-            };
-            const end = () => { drawing = false; };
-            canvas.addEventListener('mousedown', start);
-            canvas.addEventListener('mousemove', move);
-            window.addEventListener('mouseup', end);
-            canvas.addEventListener('touchstart', start, { passive: false });
-            canvas.addEventListener('touchmove', move, { passive: false });
-            canvas.addEventListener('touchend', end);
-            document.getElementById('signatureClearBtn')?.addEventListener('click', () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            });
-        }
-    } catch (e) { /* ignore */ }
-
-    // Afficher le modal lorsqu'il est ouvert par code (utile pour pré-remplissage)
-    try {
+        // Vérifier l'existence des éléments essentiels
         const modalEl = document.getElementById('invoiceModal');
-        if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
-    } catch (e) {}
+        if (!modalEl) {
+            console.error('Modal #invoiceModal introuvable dans le DOM');
+            if (typeof showError === 'function') {
+                showError('Erreur: formulaire de facture introuvable');
+            }
+            return;
+        }
+
+        const titleEl = document.getElementById('invoiceModalTitle');
+        const formEl = document.getElementById('invoiceForm');
+        const idEl = document.getElementById('invoiceId');
+        const numberEl = document.getElementById('invoiceNumber');
+
+        // Titre du modal
+        if (titleEl) {
+            titleEl.innerHTML = '<i class="bi bi-plus-circle me-2"></i>Nouvelle Facture';
+        }
+        
+        // Reset du formulaire
+        if (formEl) {
+            formEl.reset();
+            try {
+                formEl.dataset.quotationId = '';
+            } catch(e) {}
+        }
+        
+        if (idEl) {
+            idEl.value = '';
+        }
+        
+        setDefaultDates();
+        
+        // Générer un numéro de facture automatique
+        if (numberEl) {
+            const nextNumber = generateNumber('FAC-', invoices.length);
+            numberEl.value = nextNumber;
+        }
+        
+        // Démarrer avec une liste vide; l'utilisateur scanne pour ajouter
+        invoiceItems = [];
+        // Réinitialiser les quantités de devis
+        quoteQtyByProductId = new Map();
+        updateInvoiceItemsDisplay();
+        
+        // Reset méthode de paiement
+        try {
+            const pmSel = document.getElementById('invoicePaymentMethod');
+            if (pmSel) pmSel.value = '';
+        } catch (e) {}
+        
+        // Defaults for TVA UI
+        const taxSwitch = document.getElementById('showTaxSwitch');
+        const taxRateInput = document.getElementById('taxRateInput');
+        if (taxSwitch) taxSwitch.checked = true;
+        if (taxRateInput) taxRateInput.value = 18;
+        
+        // Ensure listeners are bound in case modal was created after initial setup
+        setupTaxControls();
+        calculateTotals();
+
+        // Recharger les méthodes de paiement lors de l'ouverture du modal
+        populatePaymentMethodSelects(true);
+
+        // Setup signature pad
+        try {
+            const canvas = document.getElementById('signatureCanvas');
+            if (canvas && canvas.getContext) {
+                const ctx = canvas.getContext('2d');
+                let drawing = false; let last = null;
+                const getPos = (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+                    const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+                    return { x, y };
+                };
+                const start = (e) => { drawing = true; last = getPos(e); };
+                const move = (e) => {
+                    if (!drawing) return;
+                    const pos = getPos(e);
+                    ctx.beginPath();
+                    ctx.moveTo(last.x, last.y);
+                    ctx.lineTo(pos.x, pos.y);
+                    ctx.strokeStyle = '#111';
+                    ctx.lineWidth = 2;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                    last = pos;
+                    e.preventDefault();
+                };
+                const end = () => { drawing = false; };
+                canvas.addEventListener('mousedown', start);
+                canvas.addEventListener('mousemove', move);
+                window.addEventListener('mouseup', end);
+                canvas.addEventListener('touchstart', start, { passive: false });
+                canvas.addEventListener('touchmove', move, { passive: false });
+                canvas.addEventListener('touchend', end);
+                
+                const clearBtn = document.getElementById('signatureClearBtn');
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('Erreur initialisation signature pad:', e);
+        }
+
+        // Afficher le modal - version sécurisée
+        try {
+            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+                if (modalInstance && typeof modalInstance.show === 'function') {
+                    modalInstance.show();
+                } else {
+                    console.warn('Instance modal Bootstrap invalide');
+                }
+            } else {
+                console.error('Bootstrap Modal non disponible');
+            }
+        } catch (e) {
+            console.error('Erreur ouverture modal:', e);
+            if (typeof showError === 'function') {
+                showError('Erreur lors de l\'ouverture du formulaire de facture');
+            }
+        }
+        
+    } catch (error) {
+        console.error('Erreur dans openInvoiceModal:', error);
+        if (typeof showError === 'function') {
+            showError('Erreur lors de l\'ouverture du formulaire de facture');
+        }
+    }
 }
 
 // Pré-chargement facture depuis un devis
