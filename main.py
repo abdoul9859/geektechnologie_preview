@@ -23,7 +23,7 @@ try:
     from app.models.models import Settings as LegacySettings  # type: ignore
 except Exception:
     LegacySettings = None  # type: ignore
-from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache
+from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard
 from app.init_db import init_database
 from app.auth import get_current_user
 from app.services.migration_processor import migration_processor
@@ -145,6 +145,7 @@ app.include_router(reports.router)
 app.include_router(user_settings.router)
 app.include_router(migrations.router)
 app.include_router(cache.router)
+app.include_router(dashboard.router)
 
 # Route pour le favicon
 @app.get("/favicon.ico")

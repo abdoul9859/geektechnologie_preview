@@ -282,57 +282,77 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadDashboardData() {
     try {
-        // 1) Lancer en parallèle les blocs indépendants
-        const [productsResponse, invoiceStatsResponse, metricsResponse] = await Promise.all([
-            apiRequest('/api/products?limit=200'),
-            apiRequest('/api/invoices/stats/dashboard'),
-            apiRequest('/api/reports/dashboard?days=30')
-        ]);
+        // 1) Charger toutes les stats du dashboard en une seule requête optimisée
+        const dashboardResponse = await apiRequest('/api/dashboard/stats');
+        const stats = dashboardResponse.data || {};
 
-        // Produits / stock total (éviter la boucle si vide)
-        const productsArr = Array.isArray(productsResponse.data) ? productsResponse.data : (productsResponse.data?.items || []);
-        const totalStock = productsArr.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
-        document.getElementById('total-products').textContent = totalStock;
-
-        // Statistiques factures
-        const invoiceStats = invoiceStatsResponse.data || {};
-        document.getElementById('monthly-revenue').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(invoiceStats.monthly_revenue || 0);
-        document.getElementById('pending-invoices').textContent = invoiceStats.pending_invoices || 0;
-        document.getElementById('unpaid-amount').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(invoiceStats.unpaid_amount || 0);
+        // Stats de base - mise à jour immédiate
+        document.getElementById('total-products').textContent = stats.total_stock || 0;
+        document.getElementById('monthly-revenue').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(stats.monthly_revenue || 0);
+        document.getElementById('pending-invoices').textContent = stats.pending_invoices || 0;
+        document.getElementById('unpaid-amount').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(stats.unpaid_amount || 0);
 
         // KPIs avancés
-        const metrics = metricsResponse.data || {};
-        document.getElementById('avg-ticket').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(metrics.avg_ticket || 0);
-        document.getElementById('quotes-conv').textContent = `${(metrics.conversion_rate || 0).toFixed(1)}%`;
-        document.getElementById('critical-stock').textContent = (metrics.stock?.critical_total || 0);
-        document.getElementById('active-customers').textContent = (metrics.active_customers || 0);
+        document.getElementById('avg-ticket').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(stats.avg_ticket || 0);
+        document.getElementById('quotes-conv').textContent = `${(stats.conversion_rate || 0).toFixed(1)}%`;
+        document.getElementById('critical-stock').textContent = stats.critical_stock || 0;
+        document.getElementById('active-customers').textContent = stats.active_customers || 0;
 
         // Répartition des paiements
         const methodsContainer = document.getElementById('payment-methods-chart');
-        const totals = metrics.payments || [];
-        const totalAmount = totals.reduce((s, x) => s + (x.amount||0), 0);
-        methodsContainer.innerHTML = totals.length ? `<ul class="list-unstyled mb-0">${totals.map(x => `<li>${x.method}: ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(x.amount)} ${totalAmount?`(${Math.round((x.amount/totalAmount)*100)}%)`:''}</li>`).join('')}</ul>` : '<span class="text-muted">Aucune donnée</span>';
+        const paymentMethods = stats.payment_methods || [];
+        const totalPaymentAmount = paymentMethods.reduce((s, x) => s + (x.amount||0), 0);
+        if (paymentMethods.length > 0) {
+            methodsContainer.innerHTML = `<ul class="list-unstyled mb-0">${paymentMethods.map(x => 
+                `<li><strong>${x.method}:</strong> ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(x.amount)} ${totalPaymentAmount ? `<small class="text-muted">(${Math.round((x.amount/totalPaymentAmount)*100)}%)</small>` : ''}</li>`
+            ).join('')}</ul>`;
+        } else {
+            methodsContainer.innerHTML = '<span class="text-muted">Aucune donnée</span>';
+        }
 
         // Top produits
-        const top = metrics.top_products || [];
-        document.getElementById('top-products').innerHTML = top.length ? ('<ol class="mb-0">' + top.map(p => `<li>${p.name} — ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(p.revenue)}</li>`).join('') + '</ol>') : '<span class="text-muted">Aucune donnée</span>';
+        const topProducts = stats.top_products || [];
+        const topContainer = document.getElementById('top-products');
+        if (topProducts.length > 0) {
+            topContainer.innerHTML = '<ol class="mb-0">' + topProducts.map(p => 
+                `<li><strong>${escapeHtml(p.name)}</strong><br><small class="text-success">${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(p.revenue)}</small></li>`
+            ).join('') + '</ol>';
+        } else {
+            topContainer.innerHTML = '<span class="text-muted">Aucune donnée</span>';
+        }
 
-        // 2) Lancer en parallèle les listes récentes
+        // 2) Charger les listes récentes en parallèle avec les nouveaux endpoints optimisés
         await Promise.all([
             loadRecentMovements(),
             loadRecentInvoices()
         ]);
 
+        // Afficher info cache si disponible
+        if (stats.cached_at) {
+            console.log('📊 Dashboard stats loaded from cache at:', stats.cached_at);
+        }
+
     } catch (error) {
         console.error('Erreur lors du chargement des données:', error);
-        showAlert('Erreur lors du chargement des données du tableau de bord', 'danger');
+        showAlert('Erreur lors du chargement des données du tableau de bord', 'warning');
+        
+        // Afficher des données par défaut en cas d'erreur
+        document.getElementById('total-products').textContent = '0';
+        document.getElementById('monthly-revenue').textContent = '0 F CFA';
+        document.getElementById('pending-invoices').textContent = '0';
+        document.getElementById('unpaid-amount').textContent = '0 F CFA';
+        document.getElementById('avg-ticket').textContent = '0 F CFA';
+        document.getElementById('quotes-conv').textContent = '0.0%';
+        document.getElementById('critical-stock').textContent = '0';
+        document.getElementById('active-customers').textContent = '0';
     }
 }
 
 async function loadRecentMovements() {
     try {
-        const response = await apiRequest('/api/stock-movements?limit=5');
-        const movements = response.data;
+        // Utiliser l'endpoint optimisé du dashboard
+        const response = await apiRequest('/api/dashboard/recent-movements?limit=5');
+        const movements = response.data || [];
         
         const container = document.getElementById('recent-movements');
         
@@ -353,10 +373,10 @@ async function loadRecentMovements() {
                             <i class="bi ${icon} me-2"></i>
                             <strong>${type}</strong> - ${movement.quantity} unités
                             <br>
-                            <small class="text-muted">${movement.notes || 'Aucune note'}</small>
+                            <small class="text-muted">${escapeHtml(movement.notes || 'Aucune note')}</small>
                         </div>
                         <small class="text-muted">
-                            ${new Date(movement.created_at).toLocaleDateString('fr-FR')}
+                            ${movement.created_at ? new Date(movement.created_at).toLocaleDateString('fr-FR') : ''}
                         </small>
                     </div>
                 </div>
@@ -367,6 +387,7 @@ async function loadRecentMovements() {
         container.innerHTML = html;
         
     } catch (error) {
+        console.error('Erreur chargement mouvements récents:', error);
         document.getElementById('recent-movements').innerHTML = 
             '<p class="text-danger text-center">Erreur lors du chargement</p>';
     }
@@ -374,8 +395,9 @@ async function loadRecentMovements() {
 
 async function loadRecentInvoices() {
     try {
-        const response = await apiRequest('/api/invoices?limit=5');
-        const invoices = response.data;
+        // Utiliser l'endpoint optimisé du dashboard
+        const response = await apiRequest('/api/dashboard/recent-invoices?limit=5');
+        const invoices = response.data || [];
         
         const container = document.getElementById('recent-invoices');
         
@@ -398,16 +420,16 @@ async function loadRecentInvoices() {
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>${invoice.invoice_number}</strong>
-                            <span class="badge bg-${statusClass} ms-2">${invoice.status}</span>
+                            <strong>${escapeHtml(invoice.invoice_number || '')}</strong>
+                            <span class="badge bg-${statusClass} ms-2">${escapeHtml(invoice.status || '')}</span>
                             <br>
                             <small class="text-muted">
                                 ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' })
-                                .format(invoice.total)}
+                                .format(invoice.total || 0)}
                             </small>
                         </div>
                         <small class="text-muted">
-                            ${new Date(invoice.date).toLocaleDateString('fr-FR')}
+                            ${invoice.date ? new Date(invoice.date).toLocaleDateString('fr-FR') : ''}
                         </small>
                     </div>
                 </div>
@@ -418,6 +440,7 @@ async function loadRecentInvoices() {
         container.innerHTML = html;
         
     } catch (error) {
+        console.error('Erreur chargement factures récentes:', error);
         document.getElementById('recent-invoices').innerHTML = 
             '<p class="text-danger text-center">Erreur lors du chargement</p>';
     }
