@@ -121,30 +121,39 @@ async function loadInvoices() {
     try {
         showLoading();
         
-        const params = new URLSearchParams({
+        // Construire les paramètres de manière plus simple
+        const queryParams = {
             skip: (currentPage - 1) * itemsPerPage,
-            limit: itemsPerPage,
-            ...currentFilters
-        });
+            limit: itemsPerPage
+        };
         
-        // Nettoyer les paramètres vides
-        for (const [key, value] of [...params]) {
-            if (!value) {
-                params.delete(key);
-            }
+        // Ajouter les filtres seulement s'ils ont une valeur valide
+        if (currentFilters.search && currentFilters.search.trim()) {
+            queryParams.search = currentFilters.search.trim();
+        }
+        if (currentFilters.supplier_id && currentFilters.supplier_id !== 'null' && currentFilters.supplier_id !== null) {
+            queryParams.supplier_id = currentFilters.supplier_id;
+        }
+        if (currentFilters.status && currentFilters.status !== 'null' && currentFilters.status !== null) {
+            queryParams.status = currentFilters.status;
         }
         
-        const response = await axios.get(`/api/supplier-invoices?${params}`);
-        invoices = response.data.invoices;
+        const response = await axios.get('/api/supplier-invoices/', { params: queryParams });
+        invoices = response.data.invoices || [];
         
         displayInvoices();
-        updatePagination(response.data.total);
+        updatePagination(response.data.total || 0);
         hideLoading();
         
     } catch (error) {
         console.error('Erreur lors du chargement des factures:', error);
         hideLoading();
-        showError('Erreur lors du chargement des factures');
+        if (error.response && error.response.status === 401) {
+            showError('Vous devez être connecté pour accéder à cette page');
+            // Redirection gérée automatiquement par http.js
+        } else {
+            showError('Erreur lors du chargement des factures: ' + (error.response?.data?.detail || error.message));
+        }
     }
 }
 
