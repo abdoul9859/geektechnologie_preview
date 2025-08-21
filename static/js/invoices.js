@@ -146,9 +146,40 @@ function setupEventListeners() {
     if (paySwitch) {
         paySwitch.addEventListener('change', () => {
             const v = paySwitch.checked;
-            document.getElementById('paymentNowFields').style.display = v ? 'flex' : 'none';
-            if (v) {
-                document.getElementById('paymentNowAmount').value = (document.getElementById('invoiceForm').dataset.total || '0');
+            const paymentFields = document.getElementById('paymentNowFields');
+            const amountInput = document.getElementById('paymentNowAmount');
+            const maxAmountSpan = document.getElementById('maxPaymentAmount');
+            
+            if (paymentFields) paymentFields.style.display = v ? 'flex' : 'none';
+            
+            if (v && amountInput) {
+                // Calculer le montant maximum en tenant compte des paiements existants
+                const totalAmount = parseFloat(document.getElementById('invoiceForm').dataset.total || '0');
+                const invoiceId = document.getElementById('invoiceId').value;
+                
+                if (invoiceId) {
+                    // En édition : récupérer le montant restant depuis les infos affichées
+                    const paymentInfo = document.getElementById('existingPaymentInfo');
+                    if (paymentInfo && paymentInfo.style.display !== 'none') {
+                        // Extraire le montant restant du résumé affiché
+                        const paymentSummary = document.getElementById('paymentStatusSummary');
+                        if (paymentSummary) {
+                            const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*(\d+(?:[,.]\d+)?)/i);
+                            if (remainingMatch) {
+                                const remainingAmount = parseFloat(remainingMatch[1].replace(',', '.'));
+                                amountInput.value = remainingAmount.toString();
+                                amountInput.max = remainingAmount.toString();
+                                if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                // Par défaut (nouvelle facture ou pas de paiements existants)
+                amountInput.value = totalAmount.toString();
+                amountInput.max = totalAmount.toString();
+                if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(totalAmount);
             }
         });
     }
@@ -1259,6 +1290,9 @@ function calculateTotals() {
     document.getElementById('invoiceForm').dataset.subtotal = String(subtotal);
     document.getElementById('invoiceForm').dataset.taxAmount = String(taxAmount);
     document.getElementById('invoiceForm').dataset.total = String(total);
+    
+    // Mettre à jour le montant maximum de paiement immédiat
+    updatePaymentNowMaxAmount();
 }
 
 // Sauvegarder une facture
@@ -1672,16 +1706,140 @@ async function preloadInvoiceIntoForm(invoiceId) {
     if (clientSel) clientSel.value = inv.client_id;
     document.getElementById('showTaxSwitch').checked = !!inv.show_tax;
     document.getElementById('taxRateInput').value = Number(inv.tax_rate || 0);
-    invoiceItems = (inv.items || []).map(it => ({
-        id: Date.now() + Math.random(),
-        product_id: it.product_id,
-        product_name: it.product_name,
-        variant_id: it.variant_id || null,
-        variant_imei: it.variant_imei || null,
-        quantity: it.quantity,
-        unit_price: Number(it.price),
-        total: Number(it.total)
-    }));
+    
+    // Afficher les informations de paiement existants
+    const totalAmount = Number(inv.total || inv.total_amount || 0);
+    const paidAmount = Number(inv.paid_amount || inv.paid || 0);
+    const remainingAmount = Math.max(0, totalAmount - paidAmount);
+    const isFullyPaid = String(inv.status).toUpperCase() === 'PAID' || remainingAmount <= 0;
+    
+    // Afficher le résumé des paiements s'il y a des paiements existants ou si c'est payé
+    if (paidAmount > 0 || isFullyPaid) {
+        const paymentInfo = document.getElementById('existingPaymentInfo');
+        const paymentSummary = document.getElementById('paymentStatusSummary');
+        
+        if (paymentInfo && paymentSummary) {
+            paymentSummary.innerHTML = `
+                <div><strong>Déjà payé:</strong> ${formatCurrency(paidAmount)}</div>
+                <div><strong>Restant:</strong> ${formatCurrency(remainingAmount)}</div>
+            `;
+            paymentInfo.style.display = 'block';
+            
+            // Changer la couleur si entièrement payé
+            if (isFullyPaid) {
+                paymentInfo.className = 'alert alert-success py-2 mb-3';
+                paymentSummary.innerHTML += '<div class="text-success"><i class="bi bi-check-circle"></i> <strong>Facture entièrement payée</strong></div>';
+            } else {
+                paymentInfo.className = 'alert alert-info py-2 mb-3';
+            }
+        }
+    } else {
+        // Cacher les informations de paiement s'il n'y a pas de paiements
+        const paymentInfo = document.getElementById('existingPaymentInfo');
+        if (paymentInfo) paymentInfo.style.display = 'none';
+    }
+    
+    // Extraire les métadonnées IMEI des notes pour restaurer les variantes
+    let serialsMap = new Map();
+    try {
+        const m = ((inv.notes || '').match(/__SERIALS__=(.*)$/s) || [])[1];
+        if (m) {
+            const arr = JSON.parse(m);
+            arr.forEach(e => {
+                const pid = String(e.product_id);
+                if (!serialsMap.has(pid)) serialsMap.set(pid, []);
+                (e.imeis || []).forEach(im => serialsMap.get(pid).push(im));
+            });
+        }
+    } catch(e) {
+        console.warn('Erreur lors de l\'extraction des métadonnées IMEI:', e);
+    }
+    
+    // Reconstituer les items avec les IMEI groupés par produit
+    const itemsGroupedByProduct = new Map();
+    (inv.items || []).forEach(it => {
+        const key = String(it.product_id || '');
+        if (!key) {
+            // Item sans product_id (service personnalisé)
+            invoiceItems.push({
+                id: Date.now() + Math.random(),
+                product_id: it.product_id,
+                product_name: it.product_name,
+                is_custom: !it.product_id,
+                variant_id: it.variant_id || null,
+                variant_imei: it.variant_imei || null,
+                scannedImeis: [],
+                quantity: it.quantity,
+                unit_price: Number(it.price),
+                total: Number(it.total)
+            });
+            return;
+        }
+        
+        if (!itemsGroupedByProduct.has(key)) {
+            itemsGroupedByProduct.set(key, {
+                product_id: it.product_id,
+                product_name: it.product_name,
+                unit_price: Number(it.price),
+                items: []
+            });
+        }
+        itemsGroupedByProduct.get(key).items.push(it);
+    });
+    
+    // Créer les items regroupés avec IMEI restaurés
+    invoiceItems = [];
+    itemsGroupedByProduct.forEach(group => {
+        const imeiList = serialsMap.get(String(group.product_id)) || [];
+        const totalQuantity = group.items.reduce((sum, it) => sum + Number(it.quantity || 0), 0);
+        const totalAmount = group.items.reduce((sum, it) => sum + Number(it.total || 0), 0);
+        
+        invoiceItems.push({
+            id: Date.now() + Math.random(),
+            product_id: group.product_id,
+            product_name: group.product_name,
+            is_custom: false,
+            variant_id: null,
+            variant_imei: null,
+            scannedImeis: [...imeiList], // Restaurer les IMEI depuis les métadonnées
+            quantity: imeiList.length > 0 ? imeiList.length : totalQuantity,
+            unit_price: group.unit_price,
+            total: totalAmount
+        });
+    });
+    
+    // Fallback: si pas de métadonnées IMEI, essayer de parser depuis les noms de produits
+    if (serialsMap.size === 0) {
+        invoiceItems.forEach(item => {
+            const imeis = [];
+            // Chercher des IMEI dans les items originaux ayant le même product_id
+            (inv.items || []).forEach(it => {
+                if (Number(it.product_id) === Number(item.product_id)) {
+                    // Parser IMEI depuis le nom du produit si présent
+                    try {
+                        const match = String(it.product_name || '').match(/\(IMEI:\s*([^\)]+)\)/i);
+                        if (match && match[1]) {
+                            const imei = String(match[1]).trim();
+                            if (imei && !imeis.includes(imei)) {
+                                imeis.push(imei);
+                            }
+                        }
+                    } catch(e) {}
+                    
+                    // Ou utiliser variant_imei si disponible
+                    if (it.variant_imei && !imeis.includes(it.variant_imei)) {
+                        imeis.push(it.variant_imei);
+                    }
+                }
+            });
+            
+            if (imeis.length > 0) {
+                item.scannedImeis = imeis;
+                item.quantity = imeis.length;
+            }
+        });
+    }
+    
     // Charger les quantités d'origine du devis
     quoteQtyByProductId = new Map();
     try {
@@ -1707,8 +1865,10 @@ async function preloadInvoiceIntoForm(invoiceId) {
             });
         } catch(e) {}
     }
+    
     updateInvoiceItemsDisplay();
     calculateTotals();
+    
     // Préselectionner la méthode de paiement si disponible
     try {
         const pmSel = document.getElementById('invoicePaymentMethod');
@@ -1773,6 +1933,52 @@ async function savePayment() {
         console.error('Erreur lors de l\'enregistrement du paiement:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de l\'enregistrement du paiement');
     }
+}
+
+// Mettre à jour le montant maximum de paiement immédiat
+function updatePaymentNowMaxAmount() {
+    const amountInput = document.getElementById('paymentNowAmount');
+    const maxAmountSpan = document.getElementById('maxPaymentAmount');
+    const paymentSwitch = document.getElementById('paymentNowSwitch');
+    
+    // Ne pas traiter si le switch n'est pas activé
+    if (!paymentSwitch || !paymentSwitch.checked || !amountInput) return;
+    
+    const totalAmount = parseFloat(document.getElementById('invoiceForm').dataset.total || '0');
+    const invoiceId = document.getElementById('invoiceId').value;
+    
+    if (invoiceId) {
+        // En édition : utiliser le montant restant depuis les infos affichées
+        const paymentInfo = document.getElementById('existingPaymentInfo');
+        if (paymentInfo && paymentInfo.style.display !== 'none') {
+            const paymentSummary = document.getElementById('paymentStatusSummary');
+            if (paymentSummary) {
+                const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*(\d+(?:[,.]\d+)?)/i);
+                if (remainingMatch) {
+                    const remainingAmount = parseFloat(remainingMatch[1].replace(',', '.'));
+                    
+                    // Ne mettre à jour que si le montant actuel dépasse le maximum autorisé
+                    const currentAmount = parseFloat(amountInput.value || '0');
+                    if (currentAmount > remainingAmount) {
+                        amountInput.value = remainingAmount.toString();
+                    }
+                    
+                    amountInput.max = remainingAmount.toString();
+                    if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
+                    return;
+                }
+            }
+        }
+    }
+    
+    // Par défaut (nouvelle facture ou pas de paiements existants)
+    const currentAmount = parseFloat(amountInput.value || '0');
+    if (currentAmount > totalAmount) {
+        amountInput.value = totalAmount.toString();
+    }
+    
+    amountInput.max = totalAmount.toString();
+    if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(totalAmount);
 }
 
 // Charger et appliquer les méthodes de paiement configurées

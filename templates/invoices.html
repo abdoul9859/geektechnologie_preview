@@ -318,6 +318,19 @@
                     <!-- Paiement immédiat -->
                     <div class="card mt-3">
                         <div class="card-body">
+                            <!-- Informations sur les paiements existants (affiché lors de l'édition) -->
+                            <div id="existingPaymentInfo" class="alert alert-info py-2 mb-3" style="display:none;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <i class="bi bi-info-circle me-2"></i>
+                                        <strong>État des paiements:</strong>
+                                    </div>
+                                    <div id="paymentStatusSummary" class="text-end">
+                                        <!-- Sera rempli dynamiquement -->
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <div class="form-check form-switch mb-2">
                                 <input class="form-check-input" type="checkbox" id="paymentNowSwitch">
                                 <label class="form-check-label" for="paymentNowSwitch">Enregistrer un paiement maintenant</label>
@@ -326,6 +339,7 @@
                                 <div class="col-md-4">
                                     <label class="form-label">Montant</label>
                                     <input type="number" class="form-control" id="paymentNowAmount" min="0" step="0.01">
+                                    <small class="form-text text-muted" id="paymentAmountHelp">Montant maximum: <span id="maxPaymentAmount">0 XOF</span></small>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Mode</label>
