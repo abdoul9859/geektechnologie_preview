@@ -440,3 +440,91 @@ class CategoryAttributeResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+# Schémas pour les factures fournisseur
+class SupplierInvoiceItemCreate(BaseModel):
+    product_id: Optional[int] = None
+    product_name: str
+    quantity: int
+    unit_price: Decimal
+    total: Decimal
+    description: Optional[str] = None
+
+class SupplierInvoiceItemResponse(BaseModel):
+    item_id: int
+    product_id: Optional[int] = None
+    product_name: str
+    quantity: int
+    unit_price: Decimal
+    total: Decimal
+    description: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class SupplierInvoiceCreate(BaseModel):
+    supplier_id: int
+    invoice_number: str
+    invoice_date: datetime
+    due_date: Optional[datetime] = None
+    subtotal: Decimal
+    tax_rate: Decimal = 18.00
+    tax_amount: Decimal
+    total: Decimal
+    payment_method: Optional[str] = None
+    notes: Optional[str] = None
+    items: List[SupplierInvoiceItemCreate]
+
+class SupplierInvoiceUpdate(BaseModel):
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    subtotal: Optional[Decimal] = None
+    tax_rate: Optional[Decimal] = None
+    tax_amount: Optional[Decimal] = None
+    total: Optional[Decimal] = None
+    payment_method: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+class SupplierInvoiceResponse(BaseModel):
+    invoice_id: int
+    supplier_id: int
+    supplier_name: Optional[str] = None
+    invoice_number: str
+    invoice_date: datetime
+    due_date: Optional[datetime]
+    subtotal: Decimal
+    tax_rate: Decimal
+    tax_amount: Decimal
+    total: Decimal
+    paid_amount: Decimal
+    remaining_amount: Decimal
+    status: str  # pending, partial, paid, overdue
+    payment_method: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+    items: List[SupplierInvoiceItemResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+# Schémas pour les paiements de factures fournisseur
+class SupplierInvoicePaymentCreate(BaseModel):
+    amount: Decimal
+    payment_date: datetime
+    payment_method: str
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+
+class SupplierInvoicePaymentResponse(BaseModel):
+    payment_id: int
+    supplier_invoice_id: int
+    amount: Decimal
+    payment_date: datetime
+    payment_method: str
+    reference: Optional[str]
+    notes: Optional[str]
+    
+    class Config:
+        from_attributes = True

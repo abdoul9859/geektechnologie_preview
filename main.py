@@ -23,7 +23,7 @@ try:
     from app.models.models import Settings as LegacySettings  # type: ignore
 except Exception:
     LegacySettings = None  # type: ignore
-from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard
+from app.routers import auth, products, clients, stock_movements, invoices, quotations, suppliers, debts, delivery_notes, bank_transactions, reports, user_settings, migrations, cache, dashboard, supplier_invoices
 from app.init_db import init_database
 from app.auth import get_current_user
 from app.services.migration_processor import migration_processor
@@ -138,6 +138,7 @@ app.include_router(stock_movements.router)
 app.include_router(invoices.router)
 app.include_router(quotations.router)
 app.include_router(suppliers.router)
+app.include_router(supplier_invoices.router)
 app.include_router(debts.router)
 # Désactivation de la page Bons de Livraison
 app.include_router(bank_transactions.router)
@@ -232,6 +233,11 @@ async def bank_transactions_page(request: Request, db: Session = Depends(get_db)
 async def reports_page(request: Request, db: Session = Depends(get_db)):
     """Page des rapports"""
     return templates.TemplateResponse("reports.html", {"request": request, "global_settings": _load_company_settings(db)})
+
+@app.get("/supplier-invoices", response_class=HTMLResponse)
+async def supplier_invoices_page(request: Request, db: Session = Depends(get_db)):
+    """Page de gestion des factures fournisseur"""
+    return templates.TemplateResponse("supplier_invoices.html", {"request": request, "global_settings": _load_company_settings(db)})
 
 @app.get("/debts", response_class=HTMLResponse)
 async def debts_page(request: Request, db: Session = Depends(get_db)):
