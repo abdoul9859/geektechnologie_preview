@@ -164,13 +164,19 @@ function setupEventListeners() {
                         // Extraire le montant restant du résumé affiché
                         const paymentSummary = document.getElementById('paymentStatusSummary');
                         if (paymentSummary) {
-                            const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*(\d+(?:[,.]\d+)?)/i);
+                            // Extraire le montant restant en cherchant tous les chiffres (y compris les espaces)
+                            const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*([\d\s,\.]+)\s*(?:FCFA|€|\$)?/i);
                             if (remainingMatch) {
-                                const remainingAmount = parseFloat(remainingMatch[1].replace(',', '.'));
-                                amountInput.value = remainingAmount.toString();
-                                amountInput.max = remainingAmount.toString();
-                                if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
-                                return;
+                                // Nettoyer le montant en supprimant les espaces et en remplaçant la virgule par un point
+                                const cleanAmount = remainingMatch[1].replace(/\s/g, '').replace(',', '.');
+                                const remainingAmount = parseFloat(cleanAmount);
+                                
+                                if (!isNaN(remainingAmount)) {
+                                    amountInput.value = remainingAmount.toString();
+                                    amountInput.max = remainingAmount.toString();
+                                    if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
+                                    return;
+                                }
                             }
                         }
                     }
@@ -1951,23 +1957,28 @@ function updatePaymentNowMaxAmount() {
         // En édition : utiliser le montant restant depuis les infos affichées
         const paymentInfo = document.getElementById('existingPaymentInfo');
         if (paymentInfo && paymentInfo.style.display !== 'none') {
-            const paymentSummary = document.getElementById('paymentStatusSummary');
-            if (paymentSummary) {
-                const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*(\d+(?:[,.]\d+)?)/i);
-                if (remainingMatch) {
-                    const remainingAmount = parseFloat(remainingMatch[1].replace(',', '.'));
-                    
-                    // Ne mettre à jour que si le montant actuel dépasse le maximum autorisé
-                    const currentAmount = parseFloat(amountInput.value || '0');
-                    if (currentAmount > remainingAmount) {
-                        amountInput.value = remainingAmount.toString();
+                    const paymentSummary = document.getElementById('paymentStatusSummary');
+                    if (paymentSummary) {
+                        // Extraire le montant restant en cherchant tous les chiffres (y compris les espaces)
+                        const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*([\d\s,\.]+)\s*(?:FCFA|€|\$)?/i);
+                        if (remainingMatch) {
+                            // Nettoyer le montant en supprimant les espaces et en remplaçant la virgule par un point
+                            const cleanAmount = remainingMatch[1].replace(/\s/g, '').replace(',', '.');
+                            const remainingAmount = parseFloat(cleanAmount);
+                            
+                            if (!isNaN(remainingAmount)) {
+                                // Ne mettre à jour que si le montant actuel dépasse le maximum autorisé
+                                const currentAmount = parseFloat(amountInput.value || '0');
+                                if (currentAmount > remainingAmount) {
+                                    amountInput.value = remainingAmount.toString();
+                                }
+                                
+                                amountInput.max = remainingAmount.toString();
+                                if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
+                                return;
+                            }
+                        }
                     }
-                    
-                    amountInput.max = remainingAmount.toString();
-                    if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
-                    return;
-                }
-            }
         }
     }
     
