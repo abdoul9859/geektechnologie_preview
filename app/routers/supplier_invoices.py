@@ -6,9 +6,9 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from ..database import (
-    get_db, User, Supplier, Product, 
-    SupplierInvoice, SupplierInvoiceItem, SupplierInvoicePayment,
-    BankTransaction, StockMovement
+    get_db, User, Supplier, 
+    SupplierInvoice, SupplierInvoicePayment,
+    BankTransaction
 )
 from ..auth import get_current_user
 from ..schemas import (
@@ -72,10 +72,8 @@ async def get_supplier_invoices(
                 "invoice_number": invoice.invoice_number,
                 "invoice_date": invoice.invoice_date,
                 "due_date": invoice.due_date,
-                "subtotal": float(invoice.subtotal),
-                "tax_rate": float(invoice.tax_rate),
-                "tax_amount": float(invoice.tax_amount),
-                "total": float(invoice.total),
+                "description": invoice.description,  # Nouvelle structure simple
+                "amount": float(invoice.amount),      # Montant total direct
                 "paid_amount": float(invoice.paid_amount),
                 "remaining_amount": float(invoice.remaining_amount),
                 "status": invoice.status,
@@ -108,9 +106,6 @@ async def get_supplier_invoice(
     # Enrichir avec les données du fournisseur
     supplier = db.query(Supplier).filter(Supplier.supplier_id == invoice.supplier_id).first()
     
-    # Récupérer les éléments de la facture
-    items = db.query(SupplierInvoiceItem).filter(SupplierInvoiceItem.invoice_id == invoice_id).all()
-    
     return SupplierInvoiceResponse(
         invoice_id=invoice.invoice_id,
         supplier_id=invoice.supplier_id,
@@ -118,28 +113,14 @@ async def get_supplier_invoice(
         invoice_number=invoice.invoice_number,
         invoice_date=invoice.invoice_date,
         due_date=invoice.due_date,
-        subtotal=invoice.subtotal,
-        tax_rate=invoice.tax_rate,
-        tax_amount=invoice.tax_amount,
-        total=invoice.total,
+        description=invoice.description,
+        amount=invoice.amount,
         paid_amount=invoice.paid_amount,
         remaining_amount=invoice.remaining_amount,
         status=invoice.status,
         payment_method=invoice.payment_method,
         notes=invoice.notes,
-        created_at=invoice.created_at,
-        items=[
-            {
-                "item_id": item.item_id,
-                "product_id": item.product_id,
-                "product_name": item.product_name,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "total": item.total,
-                "description": item.description
-            }
-            for item in items
-        ]
+        created_at=invoice.created_at
     )
 
 @router.post("/", response_model=SupplierInvoiceResponse)
@@ -161,18 +142,16 @@ async def create_supplier_invoice(
             raise HTTPException(status_code=400, detail="Ce numéro de facture existe déjà")
         
         # Calculer le remaining_amount
-        remaining_amount = invoice_data.total
+        remaining_amount = invoice_data.amount
         
-        # Créer la facture
+        # Créer la facture (nouvelle structure simplifiée)
         invoice = SupplierInvoice(
             supplier_id=invoice_data.supplier_id,
             invoice_number=invoice_data.invoice_number,
             invoice_date=invoice_data.invoice_date,
             due_date=invoice_data.due_date,
-            subtotal=invoice_data.subtotal,
-            tax_rate=invoice_data.tax_rate,
-            tax_amount=invoice_data.tax_amount,
-            total=invoice_data.total,
+            description=invoice_data.description,
+            amount=invoice_data.amount,
             paid_amount=0,
             remaining_amount=remaining_amount,
             status="pending",
@@ -181,40 +160,6 @@ async def create_supplier_invoice(
         )
         
         db.add(invoice)
-        db.flush()  # Pour obtenir l'ID
-        
-        # Créer les éléments de la facture
-        for item_data in invoice_data.items:
-            item = SupplierInvoiceItem(
-                invoice_id=invoice.invoice_id,
-                product_id=item_data.product_id,
-                product_name=item_data.product_name,
-                quantity=item_data.quantity,
-                unit_price=item_data.unit_price,
-                total=item_data.total,
-                description=item_data.description
-            )
-            db.add(item)
-            
-            # Mettre à jour le stock si un produit est spécifié
-            if item_data.product_id:
-                product = db.query(Product).filter(Product.product_id == item_data.product_id).first()
-                if product:
-                    # Augmenter le stock (entrée de marchandises)
-                    product.quantity += item_data.quantity
-                    
-                    # Créer un mouvement de stock
-                    movement = StockMovement(
-                        product_id=item_data.product_id,
-                        quantity=item_data.quantity,
-                        movement_type="IN",
-                        reference_type="SUPPLIER_INVOICE",
-                        reference_id=invoice.invoice_id,
-                        unit_price=item_data.unit_price,
-                        notes=f"Réception facture fournisseur {invoice.invoice_number}"
-                    )
-                    db.add(movement)
-        
         db.commit()
         db.refresh(invoice)
         
@@ -245,8 +190,8 @@ async def update_supplier_invoice(
                 setattr(invoice, field, value)
         
         # Recalculer le remaining_amount si nécessaire
-        if invoice_data.total is not None:
-            invoice.remaining_amount = invoice.total - invoice.paid_amount
+        if invoice_data.amount is not None:
+            invoice.remaining_amount = invoice.amount - invoice.paid_amount
         
         # Mettre à jour le statut automatiquement
         if invoice.remaining_amount <= 0:
@@ -284,25 +229,8 @@ async def delete_supplier_invoice(
         if invoice.paid_amount > 0:
             raise HTTPException(status_code=400, detail="Impossible de supprimer une facture avec des paiements")
         
-        # Restaurer le stock pour les produits liés
-        items = db.query(SupplierInvoiceItem).filter(SupplierInvoiceItem.invoice_id == invoice_id).all()
-        for item in items:
-            if item.product_id:
-                product = db.query(Product).filter(Product.product_id == item.product_id).first()
-                if product:
-                    product.quantity -= item.quantity
-                    
-                    # Créer un mouvement de stock de correction
-                    movement = StockMovement(
-                        product_id=item.product_id,
-                        quantity=-item.quantity,
-                        movement_type="OUT",
-                        reference_type="SUPPLIER_INVOICE_DELETE",
-                        reference_id=invoice_id,
-                        unit_price=item.unit_price,
-                        notes=f"Suppression facture fournisseur {invoice.invoice_number}"
-                    )
-                    db.add(movement)
+        # Plus besoin de gérer les items dans la nouvelle structure simplifiée
+        # La facture sera simplement supprimée
         
         db.delete(invoice)
         db.commit()
@@ -347,7 +275,7 @@ async def create_payment(
         
         # Mettre à jour la facture
         invoice.paid_amount += payment_data.amount
-        invoice.remaining_amount = invoice.total - invoice.paid_amount
+        invoice.remaining_amount = invoice.amount - invoice.paid_amount
         
         # Mettre à jour le statut
         if invoice.remaining_amount <= 0:
@@ -419,7 +347,7 @@ async def get_summary_stats(
         pending_invoices = db.query(SupplierInvoice).filter(SupplierInvoice.status == "pending").count()
         overdue_invoices = db.query(SupplierInvoice).filter(SupplierInvoice.status == "overdue").count()
         
-        total_amount = db.query(func.sum(SupplierInvoice.total)).scalar() or 0
+        total_amount = db.query(func.sum(SupplierInvoice.amount)).scalar() or 0
         paid_amount = db.query(func.sum(SupplierInvoice.paid_amount)).scalar() or 0
         remaining_amount = total_amount - paid_amount
         

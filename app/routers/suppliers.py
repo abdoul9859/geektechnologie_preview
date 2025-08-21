@@ -1,161 +1,219 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
-from datetime import datetime
-import json
+from sqlalchemy import or_, desc, func
+from typing import Optional, List
+from decimal import Decimal
 
-from ..database import get_db, User
-from ..auth import get_current_user
+from ..database import get_db, Supplier
+from ..schemas import SupplierQuickCreate, SupplierResponse
+from ..auth import get_current_user, User
 
-router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
+router = APIRouter(
+    prefix="/api/suppliers",
+    tags=["suppliers"],
+    dependencies=[Depends(get_current_user)]
+)
 
-# Données en mémoire (temporaire) — vide par défaut
-# TODO: remplacer par un modèle SQLAlchemy et des appels DB
-suppliers_data = []
-
-@router.get("/")
+@router.get("/", response_model=List[SupplierResponse])
 async def get_suppliers(
-    skip: int = 0,
-    limit: int = 20,
-    search: Optional[str] = None,
-    status: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    skip: int = Query(0, ge=0, description="Nombre d'éléments à ignorer"),
+    limit: int = Query(100, ge=1, le=1000, description="Nombre d'éléments à récupérer"),
+    search: Optional[str] = Query(None, description="Recherche par nom, téléphone ou email"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Récupérer la liste des fournisseurs"""
+    """Récupérer la liste des fournisseurs avec pagination et recherche"""
+    
     try:
-        filtered_suppliers = suppliers_data.copy()
+        query = db.query(Supplier)
         
-        # Filtrer par recherche
-        if search:
-            search_lower = search.lower()
-            filtered_suppliers = [
-                s for s in filtered_suppliers 
-                if search_lower in s["name"].lower() or 
-                   search_lower in s["email"].lower() or
-                   search_lower in s["contact_person"].lower()
-            ]
+        # Appliquer les filtres de recherche
+        if search and search.strip():
+            search_term = f"%{search.strip().lower()}%"
+            query = query.filter(
+                or_(
+                    func.lower(Supplier.name).like(search_term),
+                    func.lower(Supplier.phone).like(search_term),
+                    func.lower(Supplier.email).like(search_term)
+                )
+            )
         
-        # Filtrer par statut
-        if status:
-            filtered_suppliers = [s for s in filtered_suppliers if s["status"] == status]
+        # Trier par nom
+        query = query.order_by(Supplier.name)
         
-        # Pagination
-        total = len(filtered_suppliers)
-        suppliers = filtered_suppliers[skip:skip + limit]
+        # Appliquer pagination
+        suppliers = query.offset(skip).limit(limit).all()
         
-        return {
-            "suppliers": suppliers,
-            "total": total,
-            "page": (skip // limit) + 1,
-            "pages": (total + limit - 1) // limit
-        }
+        return suppliers
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération: {str(e)}")
 
-@router.get("/{supplier_id}")
+@router.get("/{supplier_id}", response_model=SupplierResponse)
 async def get_supplier(
     supplier_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Récupérer un fournisseur par ID"""
-    supplier = next((s for s in suppliers_data if s["id"] == supplier_id), None)
+    """Récupérer un fournisseur spécifique"""
+    
+    supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
     if not supplier:
-        raise HTTPException(status_code=404, detail="Fournisseur non trouvé")
+        raise HTTPException(status_code=404, detail="Fournisseur introuvable")
+    
     return supplier
 
-@router.post("/")
+@router.post("/", response_model=SupplierResponse)
 async def create_supplier(
-    supplier_data: dict,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    supplier_data: SupplierQuickCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Créer un nouveau fournisseur"""
+    
     try:
-        new_id = max([s["id"] for s in suppliers_data], default=0) + 1
-        new_supplier = {
-            "id": new_id,
-            "name": supplier_data.get("name"),
-            "email": supplier_data.get("email"),
-            "phone": supplier_data.get("phone"),
-            "address": supplier_data.get("address"),
-            "contact_person": supplier_data.get("contact_person"),
-            "tax_number": supplier_data.get("tax_number"),
-            "created_at": datetime.now().isoformat(),
-            "status": "active",
-            "total_purchases": 0,
-            "outstanding_balance": 0
-        }
-        suppliers_data.append(new_supplier)
-        return new_supplier
+        # Vérifier si un fournisseur avec ce nom existe déjà
+        existing = db.query(Supplier).filter(
+            func.lower(Supplier.name) == func.lower(supplier_data.name)
+        ).first()
+        
+        if existing:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Un fournisseur avec le nom '{supplier_data.name}' existe déjà"
+            )
+        
+        # Créer le nouveau fournisseur
+        db_supplier = Supplier(
+            name=supplier_data.name,
+            phone=supplier_data.phone,
+            email=supplier_data.email,
+            address=supplier_data.address
+        )
+        
+        db.add(db_supplier)
+        db.commit()
+        db.refresh(db_supplier)
+        
+        return db_supplier
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la création: {str(e)}")
 
-@router.put("/{supplier_id}")
+@router.put("/{supplier_id}", response_model=SupplierResponse)
 async def update_supplier(
     supplier_id: int,
-    supplier_data: dict,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    supplier_data: SupplierQuickCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Mettre à jour un fournisseur"""
+    
     try:
-        supplier_index = next((i for i, s in enumerate(suppliers_data) if s["id"] == supplier_id), None)
-        if supplier_index is None:
-            raise HTTPException(status_code=404, detail="Fournisseur non trouvé")
+        # Récupérer le fournisseur existant
+        supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
+        if not supplier:
+            raise HTTPException(status_code=404, detail="Fournisseur introuvable")
+        
+        # Vérifier les doublons de nom (sauf pour le fournisseur actuel)
+        existing = db.query(Supplier).filter(
+            Supplier.supplier_id != supplier_id,
+            func.lower(Supplier.name) == func.lower(supplier_data.name)
+        ).first()
+        
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Un autre fournisseur avec le nom '{supplier_data.name}' existe déjà"
+            )
         
         # Mettre à jour les champs
-        suppliers_data[supplier_index].update({
-            "name": supplier_data.get("name", suppliers_data[supplier_index]["name"]),
-            "email": supplier_data.get("email", suppliers_data[supplier_index]["email"]),
-            "phone": supplier_data.get("phone", suppliers_data[supplier_index]["phone"]),
-            "address": supplier_data.get("address", suppliers_data[supplier_index]["address"]),
-            "contact_person": supplier_data.get("contact_person", suppliers_data[supplier_index]["contact_person"]),
-            "tax_number": supplier_data.get("tax_number", suppliers_data[supplier_index]["tax_number"]),
-            "status": supplier_data.get("status", suppliers_data[supplier_index]["status"])
-        })
+        supplier.name = supplier_data.name
+        supplier.phone = supplier_data.phone
+        supplier.email = supplier_data.email
+        supplier.address = supplier_data.address
         
-        return suppliers_data[supplier_index]
+        db.commit()
+        db.refresh(supplier)
+        
+        return supplier
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la mise à jour: {str(e)}")
 
 @router.delete("/{supplier_id}")
 async def delete_supplier(
     supplier_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Supprimer un fournisseur"""
+    
     try:
-        supplier_index = next((i for i, s in enumerate(suppliers_data) if s["id"] == supplier_id), None)
-        if supplier_index is None:
-            raise HTTPException(status_code=404, detail="Fournisseur non trouvé")
+        # Récupérer le fournisseur
+        supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
+        if not supplier:
+            raise HTTPException(status_code=404, detail="Fournisseur introuvable")
         
-        deleted_supplier = suppliers_data.pop(supplier_index)
-        return {"message": "Fournisseur supprimé avec succès", "supplier": deleted_supplier}
+        # Vérifier s'il y a des factures liées
+        from ..database import SupplierInvoice
+        invoice_count = db.query(SupplierInvoice).filter(
+            SupplierInvoice.supplier_id == supplier_id
+        ).count()
+        
+        if invoice_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Impossible de supprimer: {invoice_count} facture(s) sont liées à ce fournisseur"
+            )
+        
+        # Supprimer le fournisseur
+        db.delete(supplier)
+        db.commit()
+        
+        return {"message": "Fournisseur supprimé avec succès"}
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la suppression: {str(e)}")
 
-@router.get("/stats/summary")
-async def get_suppliers_stats(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.get("/search/suggestions")
+async def get_supplier_suggestions(
+    q: str = Query(..., min_length=2, description="Terme de recherche"),
+    limit: int = Query(10, ge=1, le=50, description="Nombre de suggestions"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Récupérer les statistiques des fournisseurs"""
+    """Récupérer des suggestions de fournisseurs pour l'autocomplétion"""
+    
     try:
-        total_suppliers = len(suppliers_data)
-        active_suppliers = len([s for s in suppliers_data if s["status"] == "active"])
-        total_purchases = sum(s["total_purchases"] for s in suppliers_data)
-        outstanding_balance = sum(s["outstanding_balance"] for s in suppliers_data)
+        search_term = f"%{q.strip().lower()}%"
         
-        return {
-            "total_suppliers": total_suppliers,
-            "active_suppliers": active_suppliers,
-            "inactive_suppliers": total_suppliers - active_suppliers,
-            "total_purchases": total_purchases,
-            "outstanding_balance": outstanding_balance,
-            "average_purchase": total_purchases / total_suppliers if total_suppliers > 0 else 0
-        }
+        suppliers = db.query(Supplier).filter(
+            or_(
+                func.lower(Supplier.name).like(search_term),
+                func.lower(Supplier.phone).like(search_term),
+                func.lower(Supplier.email).like(search_term)
+            )
+        ).order_by(Supplier.name).limit(limit).all()
+        
+        return [
+            {
+                "id": supplier.supplier_id,
+                "name": supplier.name,
+                "phone": supplier.phone,
+                "email": supplier.email
+            }
+            for supplier in suppliers
+        ]
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la recherche: {str(e)}")

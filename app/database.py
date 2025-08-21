@@ -310,7 +310,7 @@ class SupplierDebtPayment(Base):
     reference = Column(String(100))
     notes = Column(Text)
 
-# Factures fournisseur
+# Factures fournisseur (version simplifiée)
 class SupplierInvoice(Base):
     __tablename__ = "supplier_invoices"
 
@@ -319,10 +319,8 @@ class SupplierInvoice(Base):
     invoice_number = Column(String(100), unique=True, nullable=False)
     invoice_date = Column(DateTime, nullable=False)
     due_date = Column(DateTime)
-    subtotal = Column(Numeric(12, 2), nullable=False)
-    tax_rate = Column(Numeric(5, 2), default=18.00)
-    tax_amount = Column(Numeric(12, 2), nullable=False)
-    total = Column(Numeric(12, 2), nullable=False)
+    description = Column(Text, nullable=False)  # Description simple du service/produit
+    amount = Column(Numeric(12, 2), nullable=False)  # Montant total de la facture
     paid_amount = Column(Numeric(12, 2), default=0)
     remaining_amount = Column(Numeric(12, 2), default=0)
     status = Column(String(20), default="pending")  # pending, partial, paid, overdue
@@ -333,24 +331,11 @@ class SupplierInvoice(Base):
 
     # Relations
     supplier = relationship("Supplier")
-    items = relationship("SupplierInvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
     payments = relationship("SupplierInvoicePayment", back_populates="invoice", cascade="all, delete-orphan")
 
-class SupplierInvoiceItem(Base):
-    __tablename__ = "supplier_invoice_items"
-
-    item_id = Column(Integer, primary_key=True, index=True)
-    invoice_id = Column(Integer, ForeignKey("supplier_invoices.invoice_id", ondelete="CASCADE"))
-    product_id = Column(Integer, ForeignKey("products.product_id", ondelete="SET NULL"))
-    product_name = Column(String(500), nullable=False)
-    quantity = Column(Integer, nullable=False)
-    unit_price = Column(Numeric(10, 2), nullable=False)
-    total = Column(Numeric(12, 2), nullable=False)
-    description = Column(Text)
-
-    # Relations
-    invoice = relationship("SupplierInvoice", back_populates="items")
-    product = relationship("Product")
+# Ancienne table SupplierInvoiceItem - supprimée dans la version simplifiée
+# class SupplierInvoiceItem(Base):
+#     __tablename__ = "supplier_invoice_items" - plus utilisée
 
 class SupplierInvoicePayment(Base):
     __tablename__ = "supplier_invoice_payments"
