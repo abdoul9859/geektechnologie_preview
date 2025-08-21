@@ -1,0 +1,426 @@
+{% extends "base.html" %}
+
+{% block title %}Tableau de bord - GEEK TECHNOLOGIE{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="h3 mb-4">
+            <i class="bi bi-speedometer2 me-2"></i>Tableau de bord
+        </h1>
+    </div>
+</div>
+
+<!-- Statistiques principales -->
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-primary shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                            Produits en stock
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="total-products">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-box-seam fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-success shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                            Chiffre d'affaires mensuel
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="monthly-revenue">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-currency-dollar fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-info shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                            Factures en attente
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="pending-invoices">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-receipt fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-warning shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                            Montant impayé
+                        </div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="unpaid-amount">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-exclamation-triangle fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- KPIs avancés -->
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-secondary shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-secondary text-uppercase mb-1">Panier moyen</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="avg-ticket"><div class="spinner-border spinner-border-sm" role="status"></div></div>
+                    </div>
+                    <div class="col-auto"><i class="bi bi-bag fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-dark shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-dark text-uppercase mb-1">Devis (conv.)</div>
+                        <div class="h6 mb-0 font-weight-bold text-gray-800" id="quotes-conv"><div class="spinner-border spinner-border-sm" role="status"></div></div>
+                    </div>
+                    <div class="col-auto"><i class="bi bi-file-earmark-text fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-danger shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">Stock critique</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="critical-stock"><div class="spinner-border spinner-border-sm" role="status"></div></div>
+                    </div>
+                    <div class="col-auto"><i class="bi bi-exclamation-octagon fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-info shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Clients actifs</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="active-customers"><div class="spinner-border spinner-border-sm" role="status"></div></div>
+                    </div>
+                    <div class="col-auto"><i class="bi bi-people fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Actions rapides -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="bi bi-lightning-fill me-2"></i>Actions rapides
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <a href="/products" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-plus-circle me-2"></i>Nouveau produit
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="/clients" class="btn btn-success btn-lg w-100">
+                            <i class="bi bi-person-plus me-2"></i>Nouveau client
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="/quotations" class="btn btn-info btn-lg w-100">
+                            <i class="bi bi-file-earmark-text me-2"></i>Nouveau devis
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="/scan" class="btn btn-warning btn-lg w-100">
+                            <i class="bi bi-qr-code-scan me-2"></i>Scanner code-barres
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Mouvements de stock récents -->
+<div class="row">
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="bi bi-arrow-left-right me-2"></i>Mouvements récents
+                </h6>
+            </div>
+            <div class="card-body">
+                <div id="recent-movements">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Chargement...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="bi bi-receipt me-2"></i>Factures récentes
+                </h6>
+            </div>
+            <div class="card-body">
+                <div id="recent-invoices">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Chargement...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Répartition & Top produits -->
+<div class="row">
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"><i class="bi bi-pie-chart me-2"></i>Répartition des paiements</h6>
+            </div>
+            <div class="card-body">
+                <div id="payment-methods-chart" class="small text-muted">Chargement...</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"><i class="bi bi-trophy me-2"></i>Top produits (CA)</h6>
+            </div>
+            <div class="card-body">
+                <div id="top-products" class="small text-muted">Chargement...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.border-left-primary {
+    border-left: 0.25rem solid #4e73df !important;
+}
+.border-left-success {
+    border-left: 0.25rem solid #1cc88a !important;
+}
+.border-left-info {
+    border-left: 0.25rem solid #36b9cc !important;
+}
+.border-left-warning {
+    border-left: 0.25rem solid #f6c23e !important;
+}
+.text-gray-300 {
+    color: #dddfeb !important;
+}
+.text-gray-800 {
+    color: #5a5c69 !important;
+}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardData();
+});
+
+async function loadDashboardData() {
+    try {
+        // 1) Lancer en parallèle les blocs indépendants
+        const [productsResponse, invoiceStatsResponse, metricsResponse] = await Promise.all([
+            apiRequest('/api/products?limit=200'),
+            apiRequest('/api/invoices/stats/dashboard'),
+            apiRequest('/api/reports/dashboard?days=30')
+        ]);
+
+        // Produits / stock total (éviter la boucle si vide)
+        const productsArr = Array.isArray(productsResponse.data) ? productsResponse.data : (productsResponse.data?.items || []);
+        const totalStock = productsArr.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
+        document.getElementById('total-products').textContent = totalStock;
+
+        // Statistiques factures
+        const invoiceStats = invoiceStatsResponse.data || {};
+        document.getElementById('monthly-revenue').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(invoiceStats.monthly_revenue || 0);
+        document.getElementById('pending-invoices').textContent = invoiceStats.pending_invoices || 0;
+        document.getElementById('unpaid-amount').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(invoiceStats.unpaid_amount || 0);
+
+        // KPIs avancés
+        const metrics = metricsResponse.data || {};
+        document.getElementById('avg-ticket').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(metrics.avg_ticket || 0);
+        document.getElementById('quotes-conv').textContent = `${(metrics.conversion_rate || 0).toFixed(1)}%`;
+        document.getElementById('critical-stock').textContent = (metrics.stock?.critical_total || 0);
+        document.getElementById('active-customers').textContent = (metrics.active_customers || 0);
+
+        // Répartition des paiements
+        const methodsContainer = document.getElementById('payment-methods-chart');
+        const totals = metrics.payments || [];
+        const totalAmount = totals.reduce((s, x) => s + (x.amount||0), 0);
+        methodsContainer.innerHTML = totals.length ? `<ul class="list-unstyled mb-0">${totals.map(x => `<li>${x.method}: ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(x.amount)} ${totalAmount?`(${Math.round((x.amount/totalAmount)*100)}%)`:''}</li>`).join('')}</ul>` : '<span class="text-muted">Aucune donnée</span>';
+
+        // Top produits
+        const top = metrics.top_products || [];
+        document.getElementById('top-products').innerHTML = top.length ? ('<ol class="mb-0">' + top.map(p => `<li>${p.name} — ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' }).format(p.revenue)}</li>`).join('') + '</ol>') : '<span class="text-muted">Aucune donnée</span>';
+
+        // 2) Lancer en parallèle les listes récentes
+        await Promise.all([
+            loadRecentMovements(),
+            loadRecentInvoices()
+        ]);
+
+    } catch (error) {
+        console.error('Erreur lors du chargement des données:', error);
+        showAlert('Erreur lors du chargement des données du tableau de bord', 'danger');
+    }
+}
+
+async function loadRecentMovements() {
+    try {
+        const response = await apiRequest('/api/stock-movements?limit=5');
+        const movements = response.data;
+        
+        const container = document.getElementById('recent-movements');
+        
+        if (movements.length === 0) {
+            container.innerHTML = '<p class="text-muted text-center">Aucun mouvement récent</p>';
+            return;
+        }
+        
+        let html = '<div class="list-group list-group-flush">';
+        movements.forEach(movement => {
+            const icon = movement.movement_type === 'IN' ? 'bi-arrow-down-circle text-success' : 'bi-arrow-up-circle text-danger';
+            const type = movement.movement_type === 'IN' ? 'Entrée' : 'Sortie';
+            
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi ${icon} me-2"></i>
+                            <strong>${type}</strong> - ${movement.quantity} unités
+                            <br>
+                            <small class="text-muted">${movement.notes || 'Aucune note'}</small>
+                        </div>
+                        <small class="text-muted">
+                            ${new Date(movement.created_at).toLocaleDateString('fr-FR')}
+                        </small>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+        
+    } catch (error) {
+        document.getElementById('recent-movements').innerHTML = 
+            '<p class="text-danger text-center">Erreur lors du chargement</p>';
+    }
+}
+
+async function loadRecentInvoices() {
+    try {
+        const response = await apiRequest('/api/invoices?limit=5');
+        const invoices = response.data;
+        
+        const container = document.getElementById('recent-invoices');
+        
+        if (invoices.length === 0) {
+            container.innerHTML = '<p class="text-muted text-center">Aucune facture récente</p>';
+            return;
+        }
+        
+        let html = '<div class="list-group list-group-flush">';
+        invoices.forEach(invoice => {
+            const statusClass = {
+                'en attente': 'warning',
+                'payée': 'success',
+                'partiellement payée': 'info',
+                'en retard': 'danger',
+                'annulée': 'secondary'
+            }[invoice.status] || 'secondary';
+            
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${invoice.invoice_number}</strong>
+                            <span class="badge bg-${statusClass} ms-2">${invoice.status}</span>
+                            <br>
+                            <small class="text-muted">
+                                ${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF' })
+                                .format(invoice.total)}
+                            </small>
+                        </div>
+                        <small class="text-muted">
+                            ${new Date(invoice.date).toLocaleDateString('fr-FR')}
+                        </small>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+        
+    } catch (error) {
+        document.getElementById('recent-invoices').innerHTML = 
+            '<p class="text-danger text-center">Erreur lors du chargement</p>';
+    }
+}
+</script>
+{% endblock %}

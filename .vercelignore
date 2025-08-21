@@ -1,0 +1,9 @@
+# Exclude local and unnecessary files from Vercel upload
+venv/
+**/__pycache__/
+*.pyc
+.env
+.git
+.gitignore
+.DS_Store
+*.log
