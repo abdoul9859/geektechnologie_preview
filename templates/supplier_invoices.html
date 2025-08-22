@@ -165,98 +165,60 @@
                 <h5 class="modal-title" id="invoiceModalLabel">Nouvelle Facture Fournisseur</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form id="invoiceForm">
-                <div class="modal-body">
-                    <div class="row g-3">
-                        <!-- Informations générales -->
-                        <div class="col-md-6">
-                            <label for="supplierId" class="form-label">Fournisseur *</label>
-                            <select id="supplierId" class="form-select" required>
-                                <option value="">Sélectionner un fournisseur</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="invoiceNumber" class="form-label">N° Facture *</label>
-                            <input type="text" id="invoiceNumber" class="form-control" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="invoiceDate" class="form-label">Date facture *</label>
-                            <input type="datetime-local" id="invoiceDate" class="form-control" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="dueDate" class="form-label">Date d'échéance</label>
-                            <input type="datetime-local" id="dueDate" class="form-control">
-                        </div>
-                        <div class="col-md-6">
-                            <label for="paymentMethod" class="form-label">Méthode de paiement</label>
-                            <select id="paymentMethod" class="form-select">
-                                <option value="">Non spécifié</option>
-                                <option value="virement">Virement bancaire</option>
-                                <option value="cheque">Chèque</option>
-                                <option value="especes">Espèces</option>
-                                <option value="carte">Carte bancaire</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="taxRate" class="form-label">Taux TVA (%)</label>
-                            <input type="number" id="taxRate" class="form-control" value="18" min="0" max="100" step="0.01">
-                        </div>
-                        <div class="col-12">
-                            <label for="notes" class="form-label">Notes</label>
-                            <textarea id="notes" class="form-control" rows="2"></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Éléments de la facture -->
-                    <div class="mt-4">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h6>Éléments de la facture</h6>
-                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInvoiceItem()">
-                                <i class="bi bi-plus"></i> Ajouter
-                            </button>
-                        </div>
-                        
-                        <div class="table-responsive">
-                            <table class="table table-sm">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th style="width: 35%">Produit</th>
-                                        <th style="width: 15%">Quantité</th>
-                                        <th style="width: 20%">Prix unitaire</th>
-                                        <th style="width: 20%">Total</th>
-                                        <th style="width: 10%">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="invoiceItems">
-                                    <!-- Les éléments seront ajoutés dynamiquement -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Totaux -->
-                    <div class="row mt-3">
-                        <div class="col-md-6 offset-md-6">
-                            <div class="card">
-                                <div class="card-body">
-                                    <div class="d-flex justify-content-between">
-                                        <span>Sous-total :</span>
-                                        <span id="subtotalDisplay" class="amount-display">0 FCFA</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between">
-                                        <span>TVA :</span>
-                                        <span id="taxDisplay" class="amount-display">0 FCFA</span>
-                                    </div>
-                                    <hr>
-                                    <div class="d-flex justify-content-between fw-bold">
-                                        <span>Total :</span>
-                                        <span id="totalDisplay" class="amount-display">0 FCFA</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+<form id="invoiceForm">
+    <div class="modal-body">
+        <div class="row g-3">
+            <!-- Informations générales -->
+            <div class="col-md-6">
+                <label for="supplierSearch" class="form-label">Fournisseur *</label>
+                <div class="input-group">
+                    <input type="text" id="supplierSearch" class="form-control" 
+                           placeholder="Rechercher ou créer un fournisseur..." 
+                           autocomplete="off" required>
+                    <button class="btn btn-outline-primary" type="button" onclick="openQuickSupplierModal()">
+                        <i class="bi bi-plus-circle"></i> Nouveau
+                    </button>
                 </div>
+                <input type="hidden" id="supplierId" required>
+                <div id="supplierSearchResults" class="list-group position-absolute w-100" 
+                     style="z-index: 1050; max-height: 200px; overflow-y: auto; display: none;"></div>
+            </div>
+            <div class="col-md-6">
+                <label for="invoiceNumber" class="form-label">N° Facture *</label>
+                <input type="text" id="invoiceNumber" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+                <label for="invoiceDate" class="form-label">Date facture *</label>
+                <input type="datetime-local" id="invoiceDate" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+                <label for="dueDate" class="form-label">Date d'échéance</label>
+                <input type="datetime-local" id="dueDate" class="form-control">
+            </div>
+            <div class="col-md-6">
+                <label for="paymentMethod" class="form-label">Méthode de paiement</label>
+                <select id="paymentMethod" class="form-select">
+                    <option value="">Non spécifié</option>
+                    <option value="virement">Virement bancaire</option>
+                    <option value="cheque">Chèque</option>
+                    <option value="especes">Espèces</option>
+                    <option value="carte">Carte bancaire</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label for="amount" class="form-label">Montant total *</label>
+                <input type="number" id="amount" class="form-control" min="0" step="0.01" required>
+            </div>
+            <div class="col-md-6">
+                <label for="paidAmount" class="form-label">Montant payé</label>
+                <input type="number" id="paidAmount" class="form-control" min="0" step="0.01" value="0">
+            </div>
+            <div class="col-12">
+                <label for="notes" class="form-label">Notes</label>
+                <textarea id="notes" class="form-control" rows="2"></textarea>
+            </div>
+        </div>
+    </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
                     <button type="submit" class="btn btn-primary">
@@ -335,6 +297,46 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
                     <button type="submit" class="btn btn-success">Enregistrer paiement</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de création rapide de fournisseur -->
+<div class="modal fade" id="quickSupplierModal" tabindex="-1" aria-labelledby="quickSupplierModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="quickSupplierModalLabel">Nouveau Fournisseur</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="quickSupplierForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="quickSupplierName" class="form-label">Nom du fournisseur *</label>
+                        <input type="text" id="quickSupplierName" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="quickSupplierContact" class="form-label">Contact</label>
+                        <input type="text" id="quickSupplierContact" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label for="quickSupplierPhone" class="form-label">Téléphone</label>
+                        <input type="tel" id="quickSupplierPhone" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label for="quickSupplierEmail" class="form-label">Email</label>
+                        <input type="email" id="quickSupplierEmail" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label for="quickSupplierAddress" class="form-label">Adresse</label>
+                        <textarea id="quickSupplierAddress" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Créer fournisseur</button>
                 </div>
             </form>
         </div>

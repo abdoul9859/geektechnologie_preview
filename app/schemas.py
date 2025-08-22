@@ -464,8 +464,9 @@ class SupplierInvoiceCreate(BaseModel):
     invoice_number: str
     invoice_date: datetime
     due_date: Optional[datetime] = None
-    description: str  # Description simple du service/produit
+    description: Optional[str] = None  # Description simple du service/produit (optionnel)
     amount: Decimal  # Montant total de la facture
+    paid_amount: Optional[Decimal] = 0  # Montant déjà payé
     payment_method: Optional[str] = None
     notes: Optional[str] = None
 

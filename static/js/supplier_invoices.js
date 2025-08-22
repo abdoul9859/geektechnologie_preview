@@ -41,8 +41,6 @@ function setupEventListeners() {
     document.getElementById('paymentForm').addEventListener('submit', handlePaymentFormSubmit);
     
     // Calculs automatiques
-    document.getElementById('taxRate').addEventListener('input', calculateTotals);
-    
     // Modal de paiement
     document.getElementById('addPaymentBtn').addEventListener('click', () => {
         if (currentInvoiceId) {
@@ -55,7 +53,7 @@ function setupEventListeners() {
 function setupFormValidation() {
     const invoiceForm = document.getElementById('invoiceForm');
     const paymentForm = document.getElementById('paymentForm');
-    
+
     invoiceForm.addEventListener('input', function(e) {
         const field = e.target;
         if (field.validity.valid) {
@@ -66,7 +64,7 @@ function setupFormValidation() {
             field.classList.add('is-invalid');
         }
     });
-    
+
     paymentForm.addEventListener('input', function(e) {
         const field = e.target;
         if (field.validity.valid) {
@@ -85,23 +83,173 @@ async function loadSuppliers() {
         const response = await axios.get('/api/suppliers');
         suppliers = response.data.suppliers || response.data;
         
-        // Remplir les sélecteurs
-        const supplierSelect = document.getElementById('supplierId');
+        // Remplir uniquement le filtre (pas le select car on utilise maintenant la recherche)
         const supplierFilter = document.getElementById('supplierFilter');
-        
-        supplierSelect.innerHTML = '<option value="">Sélectionner un fournisseur</option>';
         supplierFilter.innerHTML = '<option value="">Tous les fournisseurs</option>';
         
         suppliers.forEach(supplier => {
-            const option = new Option(supplier.name, supplier.supplier_id);
             const filterOption = new Option(supplier.name, supplier.supplier_id);
-            
-            supplierSelect.appendChild(option.cloneNode(true));
             supplierFilter.appendChild(filterOption);
         });
+        
+        // Initialiser la recherche de fournisseur
+        setupSupplierSearch();
     } catch (error) {
         console.error('Erreur lors du chargement des fournisseurs:', error);
         showError('Erreur lors du chargement des fournisseurs');
+    }
+}
+
+// Configurer la recherche de fournisseur
+function setupSupplierSearch() {
+    const searchInput = document.getElementById('supplierSearch');
+    const searchResults = document.getElementById('supplierSearchResults');
+    
+    if (!searchInput) return;
+    
+    // Recherche en temps réel
+    searchInput.addEventListener('input', debounce(function(e) {
+        const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
+        const searchTerm = inputVal.toLowerCase().trim();
+        
+        if (searchTerm.length < 2) {
+            searchResults.style.display = 'none';
+            return;
+        }
+        
+        const filteredSuppliers = suppliers.filter(supplier => {
+            const name = supplier.name || '';
+            const contact = supplier.contact || '';
+            return name.toLowerCase().includes(searchTerm) ||
+                   contact.toLowerCase().includes(searchTerm);
+        });
+        
+        if (filteredSuppliers.length === 0) {
+            searchResults.innerHTML = `
+                <button type="button" class="list-group-item list-group-item-action text-center text-muted">
+                    <i class="bi bi-search"></i> Aucun fournisseur trouvé - Cliquez sur "Nouveau" pour créer
+                </button>
+            `;
+        } else {
+            searchResults.innerHTML = filteredSuppliers.slice(0, 5).map(supplier => `
+                <button type="button" class="list-group-item list-group-item-action" 
+                        onclick="selectSupplier(${supplier.supplier_id}, '${escapeHtml(supplier.name)}')"
+                        data-supplier-id="${supplier.supplier_id}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${escapeHtml(supplier.name)}</strong>
+                            ${supplier.contact ? `<small class="text-muted d-block">${escapeHtml(supplier.contact)}</small>` : ''}
+                        </div>
+                        ${supplier.phone ? `<small class="text-muted">${escapeHtml(supplier.phone)}</small>` : ''}
+                    </div>
+                </button>
+            `).join('');
+        }
+        
+        searchResults.style.display = 'block';
+    }, 300));
+    
+    // Fermer les résultats quand on clique ailleurs
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.style.display = 'none';
+        }
+    });
+    
+    // Gérer la sélection avec le clavier
+    searchInput.addEventListener('keydown', function(e) {
+        const items = searchResults.querySelectorAll('.list-group-item');
+        const activeItem = searchResults.querySelector('.list-group-item.active');
+        let currentIndex = Array.from(items).indexOf(activeItem);
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (currentIndex < items.length - 1) {
+                if (activeItem) activeItem.classList.remove('active');
+                items[currentIndex + 1].classList.add('active');
+            } else if (currentIndex === -1 && items.length > 0) {
+                items[0].classList.add('active');
+            }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (currentIndex > 0) {
+                if (activeItem) activeItem.classList.remove('active');
+                items[currentIndex - 1].classList.add('active');
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeItem) {
+                activeItem.click();
+            }
+        }
+    });
+}
+
+// Sélectionner un fournisseur
+function selectSupplier(supplierId, supplierName) {
+    document.getElementById('supplierId').value = supplierId;
+    document.getElementById('supplierSearch').value = supplierName;
+    document.getElementById('supplierSearchResults').style.display = 'none';
+}
+
+// Ouvrir la modal de création rapide de fournisseur
+function openQuickSupplierModal() {
+    // Fermer temporairement la modal de facture
+    const invoiceModal = bootstrap.Modal.getInstance(document.getElementById('invoiceModal'));
+    if (invoiceModal) {
+        invoiceModal.hide();
+    }
+    
+    // Réinitialiser le formulaire
+    document.getElementById('quickSupplierForm').reset();
+    
+    // Ouvrir la modal de création
+    const modal = new bootstrap.Modal(document.getElementById('quickSupplierModal'));
+    modal.show();
+    
+    // Gérer la soumission du formulaire
+    document.getElementById('quickSupplierForm').onsubmit = async function(e) {
+        e.preventDefault();
+        await createQuickSupplier();
+    };
+}
+
+// Créer un nouveau fournisseur rapidement
+async function createQuickSupplier() {
+    const supplierData = {
+        name: document.getElementById('quickSupplierName').value,
+        contact: document.getElementById('quickSupplierContact').value || null,
+        phone: document.getElementById('quickSupplierPhone').value || null,
+        email: document.getElementById('quickSupplierEmail').value || null,
+        address: document.getElementById('quickSupplierAddress').value || null
+    };
+    
+    try {
+        const response = await axios.post('/api/suppliers', supplierData);
+        const newSupplier = response.data;
+        
+        // Ajouter le nouveau fournisseur à la liste
+        suppliers.push(newSupplier);
+        
+        // Sélectionner automatiquement le nouveau fournisseur
+        selectSupplier(newSupplier.supplier_id, newSupplier.name);
+        
+        // Fermer la modal de création
+        const modal = bootstrap.Modal.getInstance(document.getElementById('quickSupplierModal'));
+        modal.hide();
+        
+        // Rouvrir la modal de facture
+        const invoiceModal = new bootstrap.Modal(document.getElementById('invoiceModal'));
+        invoiceModal.show();
+        
+        showSuccess('Fournisseur créé avec succès');
+        
+        // Recharger la liste des fournisseurs pour mettre à jour le filtre
+        loadSuppliers();
+        
+    } catch (error) {
+        console.error('Erreur lors de la création du fournisseur:', error);
+        showError(error.response?.data?.detail || 'Erreur lors de la création du fournisseur');
     }
 }
 
@@ -197,7 +345,7 @@ function displayInvoices() {
             <td>${escapeHtml(invoice.supplier_name || 'N/A')}</td>
             <td>${formatDateTime(invoice.invoice_date)}</td>
             <td>${invoice.due_date ? formatDateTime(invoice.due_date) : '-'}</td>
-            <td class="amount-display">${formatCurrency(invoice.total)}</td>
+            <td class="amount-display">${formatCurrency(invoice.amount || invoice.total)}</td>
             <td class="amount-display">${formatCurrency(invoice.paid_amount)}</td>
             <td class="amount-display">${formatCurrency(invoice.remaining_amount)}</td>
             <td>
@@ -242,7 +390,7 @@ function openInvoiceModal(invoiceId = null) {
         title.textContent = 'Nouvelle facture fournisseur';
         saveBtn.textContent = 'Enregistrer';
         resetInvoiceForm();
-        addInvoiceItem(); // Ajouter un élément par défaut
+        // plus d'items à ajouter dans le mode 'suivi dettes'
     }
     
     modal.show();
@@ -251,16 +399,11 @@ function openInvoiceModal(invoiceId = null) {
 // Réinitialiser le formulaire de facture
 function resetInvoiceForm() {
     document.getElementById('invoiceForm').reset();
-    document.getElementById('invoiceItems').innerHTML = '';
-    
-    // Remettre les valeurs par défaut
-    document.getElementById('taxRate').value = '18';
+    // Mettre paidAmount à zéro
+    document.getElementById('paidAmount').value = "0";
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     document.getElementById('invoiceDate').value = now.toISOString().slice(0, 16);
-    
-    calculateTotals();
-    
     // Supprimer les classes de validation
     document.querySelectorAll('.form-control, .form-select').forEach(field => {
         field.classList.remove('is-valid', 'is-invalid');
@@ -272,26 +415,19 @@ async function loadInvoiceForEdit(invoiceId) {
     try {
         const response = await axios.get(`/api/supplier-invoices/${invoiceId}`);
         const invoice = response.data;
-        
-        // Remplir le formulaire
+
+        // Remplir le fournisseur avec son nom
         document.getElementById('supplierId').value = invoice.supplier_id;
+        document.getElementById('supplierSearch').value = invoice.supplier_name || '';
+        
+        // Remplir les autres champs
         document.getElementById('invoiceNumber').value = invoice.invoice_number;
         document.getElementById('invoiceDate').value = invoice.invoice_date.slice(0, 16);
         document.getElementById('dueDate').value = invoice.due_date ? invoice.due_date.slice(0, 16) : '';
         document.getElementById('paymentMethod').value = invoice.payment_method || '';
-        document.getElementById('taxRate').value = invoice.tax_rate;
+        document.getElementById('amount').value = invoice.amount || 0;
+        document.getElementById('paidAmount').value = invoice.paid_amount || 0;
         document.getElementById('notes').value = invoice.notes || '';
-        
-        // Charger les éléments
-        const itemsContainer = document.getElementById('invoiceItems');
-        itemsContainer.innerHTML = '';
-        
-        invoice.items.forEach(item => {
-            addInvoiceItem(item);
-        });
-        
-        calculateTotals();
-        
     } catch (error) {
         console.error('Erreur lors du chargement de la facture:', error);
         showError('Erreur lors du chargement de la facture');
@@ -299,51 +435,7 @@ async function loadInvoiceForEdit(invoiceId) {
 }
 
 // Ajouter un élément de facture
-function addInvoiceItem(itemData = null) {
-    const container = document.getElementById('invoiceItems');
-    const itemIndex = container.children.length;
-    
-    const row = document.createElement('tr');
-    row.innerHTML = `
-        <td>
-            <select class="form-select form-select-sm product-select" name="items[${itemIndex}][product_id]" onchange="handleProductChange(this, ${itemIndex})">
-                <option value="">Produit personnalisé</option>
-                ${products.map(product => 
-                    `<option value="${product.product_id}" ${itemData && itemData.product_id === product.product_id ? 'selected' : ''}>
-                        ${escapeHtml(product.name)} (${formatCurrency(product.purchase_price)})
-                    </option>`
-                ).join('')}
-            </select>
-            <input type="text" class="form-control form-control-sm mt-1" name="items[${itemIndex}][product_name]" 
-                   placeholder="Nom du produit" value="${itemData ? escapeHtml(itemData.product_name) : ''}" required>
-        </td>
-        <td>
-            <input type="number" class="form-control form-control-sm quantity-input" name="items[${itemIndex}][quantity]" 
-                   min="1" step="1" value="${itemData ? itemData.quantity : 1}" required onchange="calculateItemTotal(${itemIndex})">
-        </td>
-        <td>
-            <input type="number" class="form-control form-control-sm unit-price-input" name="items[${itemIndex}][unit_price]" 
-                   min="0" step="0.01" value="${itemData ? itemData.unit_price : 0}" required onchange="calculateItemTotal(${itemIndex})">
-        </td>
-        <td>
-            <input type="number" class="form-control form-control-sm total-input" name="items[${itemIndex}][total]" 
-                   value="${itemData ? itemData.total : 0}" readonly>
-        </td>
-        <td>
-            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeInvoiceItem(this)">
-                <i class="bi bi-trash"></i>
-            </button>
-        </td>
-    `;
-    
-    container.appendChild(row);
-    
-    if (itemData) {
-        calculateItemTotal(itemIndex);
-    }
-    
-    calculateTotals();
-}
+// Fonction de gestion des items supprimée dans le mode dettes fournisseur. Rien à faire ici.
 
 // Supprimer un élément de facture
 function removeInvoiceItem(button) {
@@ -432,81 +524,35 @@ async function handleInvoiceFormSubmit(e) {
 // Valider le formulaire de facture
 function validateInvoiceForm() {
     const requiredFields = [
-        'supplierId', 'invoiceNumber', 'invoiceDate'
+        'supplierId', 'invoiceNumber', 'invoiceDate', 'amount'
     ];
-    
+
     let isValid = true;
-    
+
     requiredFields.forEach(fieldId => {
         const field = document.getElementById(fieldId);
-        if (!field.value.trim()) {
+        if (!field.value || (field.type === 'number' && parseFloat(field.value) < 0)) {
             field.classList.add('is-invalid');
             isValid = false;
         } else {
             field.classList.remove('is-invalid');
         }
     });
-    
-    // Vérifier qu'il y a au moins un élément
-    const items = document.getElementById('invoiceItems').children;
-    if (items.length === 0) {
-        showError('Veuillez ajouter au moins un élément à la facture');
-        return false;
-    }
-    
-    // Valider les éléments
-    for (const row of items) {
-        const productName = row.querySelector('input[name*="[product_name]"]');
-        const quantity = row.querySelector('.quantity-input');
-        const unitPrice = row.querySelector('.unit-price-input');
-        
-        if (!productName.value.trim() || !quantity.value || !unitPrice.value) {
-            showError('Tous les éléments doivent être correctement remplis');
-            return false;
-        }
-    }
-    
+
     return isValid;
 }
 
 // Collecter les données du formulaire
 function collectInvoiceFormData() {
-    const container = document.getElementById('invoiceItems');
-    const items = [];
-    
-    for (const row of container.children) {
-        const productSelect = row.querySelector('.product-select');
-        const productName = row.querySelector('input[name*="[product_name]"]');
-        const quantity = parseInt(row.querySelector('.quantity-input').value);
-        const unitPrice = parseFloat(row.querySelector('.unit-price-input').value);
-        const total = parseFloat(row.querySelector('.total-input').value);
-        
-        items.push({
-            product_id: productSelect.value ? parseInt(productSelect.value) : null,
-            product_name: productName.value,
-            quantity: quantity,
-            unit_price: unitPrice,
-            total: total
-        });
-    }
-    
-    const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-    const taxRate = parseFloat(document.getElementById('taxRate').value) || 0;
-    const taxAmount = (subtotal * taxRate) / 100;
-    const total = subtotal + taxAmount;
-    
     return {
         supplier_id: parseInt(document.getElementById('supplierId').value),
         invoice_number: document.getElementById('invoiceNumber').value,
         invoice_date: document.getElementById('invoiceDate').value,
         due_date: document.getElementById('dueDate').value || null,
         payment_method: document.getElementById('paymentMethod').value || null,
-        subtotal: subtotal,
-        tax_rate: taxRate,
-        tax_amount: taxAmount,
-        total: total,
-        notes: document.getElementById('notes').value || null,
-        items: items
+        amount: parseFloat(document.getElementById('amount').value),
+        paid_amount: parseFloat(document.getElementById('paidAmount').value) || 0,
+        notes: document.getElementById('notes').value || null
     };
 }
 
@@ -527,6 +573,7 @@ async function viewInvoice(invoiceId) {
                     <p><strong>Fournisseur :</strong> ${escapeHtml(invoice.supplier_name)}</p>
                     <p><strong>Date facture :</strong> ${formatDateTime(invoice.invoice_date)}</p>
                     <p><strong>Date échéance :</strong> ${invoice.due_date ? formatDateTime(invoice.due_date) : 'Non définie'}</p>
+                    <p><strong>Méthode de paiement :</strong> ${invoice.payment_method ? escapeHtml(invoice.payment_method) : 'Non spécifié'}</p>
                     <p><strong>Statut :</strong> 
                         <span class="badge ${getStatusBadgeClass(invoice.status)}">
                             ${getStatusLabel(invoice.status)}
@@ -535,13 +582,20 @@ async function viewInvoice(invoiceId) {
                 </div>
                 <div class="col-md-6">
                     <h6>Montants</h6>
-                    <p><strong>Sous-total :</strong> ${formatCurrency(invoice.subtotal)}</p>
-                    <p><strong>TVA (${invoice.tax_rate}%) :</strong> ${formatCurrency(invoice.tax_amount)}</p>
-                    <p><strong>Total :</strong> ${formatCurrency(invoice.total)}</p>
-                    <p><strong>Payé :</strong> ${formatCurrency(invoice.paid_amount)}</p>
-                    <p><strong>Restant :</strong> ${formatCurrency(invoice.remaining_amount)}</p>
+                    <p><strong>Montant total :</strong> ${formatCurrency(invoice.amount || invoice.total)}</p>
+                    <p><strong>Montant payé :</strong> ${formatCurrency(invoice.paid_amount)}</p>
+                    <p><strong>Montant restant :</strong> ${formatCurrency(invoice.remaining_amount)}</p>
                 </div>
             </div>
+            
+            ${invoice.description ? `
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6>Description</h6>
+                        <p>${escapeHtml(invoice.description)}</p>
+                    </div>
+                </div>
+            ` : ''}
             
             ${invoice.notes ? `
                 <div class="row mt-3">
@@ -551,34 +605,6 @@ async function viewInvoice(invoiceId) {
                     </div>
                 </div>
             ` : ''}
-            
-            <div class="row mt-3">
-                <div class="col-12">
-                    <h6>Éléments de la facture</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Produit</th>
-                                    <th>Quantité</th>
-                                    <th>Prix unitaire</th>
-                                    <th>Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${invoice.items.map(item => `
-                                    <tr>
-                                        <td>${escapeHtml(item.product_name)}</td>
-                                        <td>${item.quantity}</td>
-                                        <td>${formatCurrency(item.unit_price)}</td>
-                                        <td>${formatCurrency(item.total)}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
         `;
         
         // Afficher/masquer le bouton de paiement
@@ -602,6 +628,30 @@ function editInvoice(invoiceId) {
 // Supprimer une facture
 function deleteInvoice(invoiceId) {
     currentInvoiceId = invoiceId;
+    
+    // Trouver la facture pour vérifier si elle a des paiements
+    const invoice = invoices.find(inv => inv.invoice_id === invoiceId);
+    if (invoice && invoice.paid_amount > 0) {
+        // Personnaliser le message de confirmation pour les factures avec paiements
+        const modalBody = document.querySelector('#deleteModal .modal-body');
+        if (modalBody) {
+            modalBody.innerHTML = `
+                <p>Êtes-vous sûr de vouloir supprimer cette facture ?</p>
+                <p class="text-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Attention :</strong> Cette facture a un montant payé de ${formatCurrency(invoice.paid_amount)}.
+                    Ce montant sera automatiquement rétabli dans votre chiffre d'affaires.
+                </p>
+            `;
+        }
+    } else {
+        // Message standard pour les factures sans paiement
+        const modalBody = document.querySelector('#deleteModal .modal-body');
+        if (modalBody) {
+            modalBody.innerHTML = '<p>Êtes-vous sûr de vouloir supprimer cette facture ?</p>';
+        }
+    }
+    
     const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
     modal.show();
 }
@@ -644,7 +694,7 @@ async function openPaymentModal(invoiceId) {
                 <span><strong>Fournisseur :</strong> ${escapeHtml(invoice.supplier_name)}</span>
             </div>
             <div class="d-flex justify-content-between mt-2">
-                <span><strong>Total facture :</strong> ${formatCurrency(invoice.total)}</span>
+                <span><strong>Total facture :</strong> ${formatCurrency(invoice.amount || invoice.total)}</span>
                 <span><strong>Déjà payé :</strong> ${formatCurrency(invoice.paid_amount)}</span>
             </div>
             <div class="d-flex justify-content-between mt-2">

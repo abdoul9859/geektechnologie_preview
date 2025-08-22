@@ -385,6 +385,7 @@ async function loadClients() {
         const { data } = await axios.get('/api/clients/');
         clients = data.items || data || [];
         populateClientSelect();
+        setupClientSearch();
     } catch (error) {
         console.error('Erreur lors du chargement des clients:', error);
     }
@@ -541,13 +542,92 @@ function populateClientSelect() {
     const clientSelect = document.getElementById('clientSelect');
     if (!clientSelect) return;
 
-    clientSelect.innerHTML = '<option value="">Sélectionner un client</option>';
-    clients.forEach(client => {
-        const option = document.createElement('option');
-        option.value = client.client_id;
-        option.textContent = client.name;
-        clientSelect.appendChild(option);
+    // Si c'est un input hidden, on ne remplit rien (compatibilité ancienne UI)
+    if (clientSelect.tagName && clientSelect.tagName.toLowerCase() === 'select') {
+        clientSelect.innerHTML = '<option value="">Sélectionner un client</option>';
+        clients.forEach(client => {
+            const option = document.createElement('option');
+            option.value = client.client_id;
+            option.textContent = client.name;
+            clientSelect.appendChild(option);
+        });
+    }
+}
+
+// Recherche client avec autocomplétion
+function setupClientSearch() {
+    const searchInput = document.getElementById('clientSearch');
+    const resultsBox = document.getElementById('clientSearchResults');
+    if (!searchInput || !resultsBox) return;
+
+    const closeResults = () => { resultsBox.style.display = 'none'; };
+
+    searchInput.addEventListener('input', debounce(function(e){
+        const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
+        const term = inputVal.toLowerCase().trim();
+        if (term.length < 2) { closeResults(); return; }
+        const safe = v => String(v || '').toLowerCase();
+        const list = (clients || []).filter(c => safe(c.name).includes(term) || safe(c.phone).includes(term) || safe(c.email).includes(term));
+        if (!list.length) {
+            resultsBox.innerHTML = '<div class="list-group-item text-muted small">Aucun client</div>';
+        } else {
+            resultsBox.innerHTML = list.slice(0, 8).map(c => `
+                <button type="button" class="list-group-item list-group-item-action" data-client-id="${c.client_id}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${escapeHtml(c.name || '')}</strong>
+                            ${c.email ? `<div class=\"text-muted small\">${escapeHtml(c.email)}</div>` : ''}
+                        </div>
+                        ${c.phone ? `<small class=\"text-muted\">${escapeHtml(c.phone)}</small>` : ''}
+                    </div>
+                </button>
+            `).join('');
+        }
+        resultsBox.style.display = 'block';
+    }, 250));
+
+    // Sélection par clic
+    resultsBox.addEventListener('click', function(e){
+        const btn = e.target.closest('[data-client-id]');
+        if (!btn) return;
+        const id = Number(btn.getAttribute('data-client-id'));
+        const c = (clients || []).find(x => Number(x.client_id) === id);
+        if (c) selectClient(c.client_id, c.name);
     });
+
+    // Navigation clavier
+    searchInput.addEventListener('keydown', function(e){
+        const items = resultsBox.querySelectorAll('.list-group-item');
+        const active = resultsBox.querySelector('.list-group-item.active');
+        let idx = Array.from(items).indexOf(active);
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (idx < items.length - 1) { if (active) active.classList.remove('active'); items[idx+1]?.classList.add('active'); }
+            else if (idx === -1 && items.length) { items[0].classList.add('active'); }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (idx > 0) { if (active) active.classList.remove('active'); items[idx-1]?.classList.add('active'); }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (active) active.click();
+        }
+    });
+
+    // Clic extérieur pour fermer
+    document.addEventListener('click', function(e){
+        if (!searchInput.contains(e.target) && !resultsBox.contains(e.target)) {
+            closeResults();
+        }
+    });
+}
+
+function selectClient(clientId, clientName) {
+    const hidden = document.getElementById('clientSelect');
+    const input = document.getElementById('clientSearch');
+    const resultsBox = document.getElementById('clientSearchResults');
+    if (hidden) hidden.value = String(clientId || '');
+    if (input) input.value = clientName || '';
+    if (resultsBox) resultsBox.style.display = 'none';
 }
 
 // Afficher les factures
@@ -821,6 +901,16 @@ function openInvoiceModal() {
             idEl.value = '';
         }
         
+        // Reset client search/hidden
+        try {
+            const hidden = document.getElementById('clientSelect');
+            const input = document.getElementById('clientSearch');
+            const box = document.getElementById('clientSearchResults');
+            if (hidden) hidden.value = '';
+            if (input) input.value = '';
+            if (box) box.style.display = 'none';
+        } catch(e) {}
+        
         setDefaultDates();
         
         // Générer un numéro de facture automatique
@@ -935,6 +1025,9 @@ function preloadPrefilledInvoiceFromQuotation(prefill) {
     try {
         const clientSel = document.getElementById('clientSelect');
         if (clientSel && prefill?.client_id) clientSel.value = prefill.client_id;
+        const c = (clients || []).find(x => Number(x.client_id) === Number(prefill?.client_id));
+        const input = document.getElementById('clientSearch');
+        if (input) input.value = c ? (c.name || '') : (prefill?.client_name || '');
     } catch(e) {}
     // Date
     try {
@@ -1465,12 +1558,12 @@ async function saveQuickClient() {
     try {
         const payload = { name, phone: (document.getElementById('qcPhone')?.value || '').trim(), email: (document.getElementById('qcEmail')?.value || '').trim() };
         const { data: client } = await axios.post('/api/clients/', payload);
-        // Add to select
+        // Ajouter en mémoire, mettre à jour la recherche/hidden
         clients.push(client);
         populateClientSelect();
-        const sel = document.getElementById('clientSelect');
-        if (sel) sel.value = client.client_id;
-        bootstrap.Modal.getInstance(document.getElementById('clientQuickModal')).hide();
+        selectClient(client.client_id, client.name);
+        const qm = bootstrap.Modal.getInstance(document.getElementById('clientQuickModal'));
+        if (qm) qm.hide();
         showSuccess('Client ajouté');
     } catch (e) {
         showError('Erreur lors de la création du client');
@@ -1710,6 +1803,11 @@ async function preloadInvoiceIntoForm(invoiceId) {
     document.getElementById('dueDate').value = (inv.due_date || '').split('T')[0] || '';
     const clientSel = document.getElementById('clientSelect');
     if (clientSel) clientSel.value = inv.client_id;
+    try {
+        const c = (clients || []).find(x => Number(x.client_id) === Number(inv.client_id));
+        const input = document.getElementById('clientSearch');
+        if (input) input.value = c ? (c.name || '') : (inv.client_name || '');
+    } catch(e) {}
     document.getElementById('showTaxSwitch').checked = !!inv.show_tax;
     document.getElementById('taxRateInput').value = Number(inv.tax_rate || 0);
     

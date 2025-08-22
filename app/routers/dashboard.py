@@ -10,7 +10,7 @@ import logging
 from ..database import get_db, User
 from ..database import (
     Invoice, InvoiceItem, InvoicePayment, Quotation, Product, ProductVariant,
-    Client, StockMovement
+    Client, StockMovement, SupplierInvoice, SupplierInvoicePayment
 )
 from ..auth import get_current_user
 
@@ -71,11 +71,20 @@ async def get_dashboard_stats(
             
             # Chiffre d'affaires mensuel (factures payées)
             paid_statuses = ["payée", "PAID"]
-            monthly_revenue = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
+            monthly_revenue_gross = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
                 func.extract('month', Invoice.date) == today.month,
                 func.extract('year', Invoice.date) == today.year,
                 Invoice.status.in_(paid_statuses)
             ).scalar() or 0
+            
+            # Paiements aux fournisseurs du mois
+            monthly_supplier_payments = db.query(func.coalesce(func.sum(SupplierInvoice.paid_amount), 0)).filter(
+                func.extract('month', SupplierInvoice.invoice_date) == today.month,
+                func.extract('year', SupplierInvoice.invoice_date) == today.year
+            ).scalar() or 0
+            
+            # Chiffre d'affaires net = revenus - paiements fournisseurs
+            monthly_revenue = float(monthly_revenue_gross) - float(monthly_supplier_payments)
             
             # Montant impayé
             unpaid_statuses = ["en attente", "partiellement payée", "OVERDUE"]
@@ -93,10 +102,18 @@ async def get_dashboard_stats(
                 Invoice.status.in_(paid_statuses)
             )
             num_invoices_30d = paid_invoices_30d.count()
-            total_revenue_30d = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
+            total_revenue_30d_gross = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
                 Invoice.date >= since_30.date(),
                 Invoice.status.in_(paid_statuses)
             ).scalar() or 0
+            
+            # Paiements aux fournisseurs sur 30 jours
+            supplier_payments_30d = db.query(func.coalesce(func.sum(SupplierInvoicePayment.amount), 0)).filter(
+                SupplierInvoicePayment.payment_date >= since_30.date()
+            ).scalar() or 0
+            
+            # Revenus nets sur 30 jours
+            total_revenue_30d = float(total_revenue_30d_gross) - float(supplier_payments_30d)
             avg_ticket = float(total_revenue_30d / num_invoices_30d) if num_invoices_30d > 0 else 0.0
             
             # Taux de conversion devis->factures (30 jours)

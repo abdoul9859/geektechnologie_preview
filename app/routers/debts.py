@@ -6,7 +6,8 @@ from datetime import datetime, date
 
 from ..database import (
     get_db, User, Invoice, Client, InvoicePayment,
-    Supplier, SupplierDebt, SupplierDebtPayment
+    Supplier, SupplierDebt, SupplierDebtPayment,
+    SupplierInvoice, SupplierInvoicePayment
 )
 from ..auth import get_current_user
 
@@ -22,60 +23,115 @@ async def get_debts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Récupérer les dettes clients automatiquement depuis les factures."""
+    """Récupérer les dettes clients et fournisseurs."""
     try:
-        # Jointure factures/clients, filtrage SQL: créances = toutes factures avec solde > 0 (partiel ou en attente)
-        remaining_sql = func.coalesce(Invoice.remaining_amount, Invoice.total - func.coalesce(Invoice.paid_amount, 0))
-        q = (
-            db.query(Invoice, Client)
-            .join(Client, Client.client_id == Invoice.client_id, isouter=True)
-            .filter(remaining_sql > 0)
-        )
-
-        if search:
-            s = f"%{search.lower()}%"
-            q = q.filter(
-                func.lower(Invoice.invoice_number).like(s) | func.lower(Client.name).like(s)
-            )
-
-        rows = q.all()
-
-        # Construire la liste (factures partiellement payées ou en attente)
         debts_all = []
         today = date.today()
-        for inv, cl in rows:
-            amount = float(inv.total or 0)
-            paid = float(inv.paid_amount or 0)
-            remaining = float(inv.remaining_amount or (amount - paid))
-            # Statut calculé (pending, partial, overdue)
-            overdue = bool(inv.due_date and getattr(inv.due_date, 'date', lambda: inv.due_date)() < today and remaining > 0)
-            if remaining <= 0:
-                st = "paid"
-            elif overdue:
-                st = "overdue"
-            else:
-                st = ("partial" if paid > 0 else "pending")
-            # Filtre statut si demandé
-            if status and st != status:
-                continue
-            debts_all.append({
-                "id": int(inv.invoice_id),
-                "type": "client",
-                "entity_id": int(inv.client_id) if inv.client_id is not None else None,
-                "entity_name": getattr(cl, 'name', None),
-                "reference": inv.invoice_number,
-                "invoice_number": inv.invoice_number,
-                "amount": amount,
-                "paid_amount": paid,
-                "remaining_amount": remaining,
-                "date": inv.date,
-                "due_date": inv.due_date,
-                "created_at": inv.created_at,
-                "status": st,
-                "days_overdue": ( (today - inv.due_date.date()).days if (inv.due_date and remaining > 0 and hasattr(inv.due_date, 'date')) else 0 ),
-                "description": None,
-            })
+        
+        # 1. Récupérer les créances clients (factures clients non payées)
+        if type is None or type == "client":
+            remaining_sql = func.coalesce(Invoice.remaining_amount, Invoice.total - func.coalesce(Invoice.paid_amount, 0))
+            q = (
+                db.query(Invoice, Client)
+                .join(Client, Client.client_id == Invoice.client_id, isouter=True)
+                .filter(remaining_sql > 0)
+            )
 
+            if search:
+                s = f"%{search.lower()}%"
+                q = q.filter(
+                    func.lower(Invoice.invoice_number).like(s) | func.lower(Client.name).like(s)
+                )
+
+            rows = q.all()
+
+            for inv, cl in rows:
+                amount = float(inv.total or 0)
+                paid = float(inv.paid_amount or 0)
+                remaining = float(inv.remaining_amount or (amount - paid))
+                # Statut calculé (pending, partial, overdue)
+                overdue = bool(inv.due_date and getattr(inv.due_date, 'date', lambda: inv.due_date)() < today and remaining > 0)
+                if remaining <= 0:
+                    st = "paid"
+                elif overdue:
+                    st = "overdue"
+                else:
+                    st = ("partial" if paid > 0 else "pending")
+                # Filtre statut si demandé
+                if status and st != status:
+                    continue
+                debts_all.append({
+                    "id": int(inv.invoice_id),
+                    "type": "client",
+                    "entity_id": int(inv.client_id) if inv.client_id is not None else None,
+                    "entity_name": getattr(cl, 'name', None),
+                    "reference": inv.invoice_number,
+                    "invoice_number": inv.invoice_number,
+                    "amount": amount,
+                    "paid_amount": paid,
+                    "remaining_amount": remaining,
+                    "date": inv.date,
+                    "due_date": inv.due_date,
+                    "created_at": inv.created_at,
+                    "status": st,
+                    "days_overdue": ( (today - inv.due_date.date()).days if (inv.due_date and remaining > 0 and hasattr(inv.due_date, 'date')) else 0 ),
+                    "description": None,
+                })
+        
+        # 2. Récupérer les dettes fournisseurs (factures fournisseur non payées)
+        if type is None or type == "supplier":
+            q_supplier = (
+                db.query(SupplierInvoice, Supplier)
+                .join(Supplier, Supplier.supplier_id == SupplierInvoice.supplier_id, isouter=True)
+                .filter(SupplierInvoice.remaining_amount > 0)
+            )
+            
+            if search:
+                s = f"%{search.lower()}%"
+                q_supplier = q_supplier.filter(
+                    func.lower(SupplierInvoice.invoice_number).like(s) | func.lower(Supplier.name).like(s)
+                )
+            
+            supplier_rows = q_supplier.all()
+            
+            for sup_inv, sup in supplier_rows:
+                amount = float(sup_inv.amount or 0)
+                paid = float(sup_inv.paid_amount or 0)
+                remaining = float(sup_inv.remaining_amount or 0)
+                # Statut
+                overdue = bool(sup_inv.due_date and sup_inv.due_date.date() < today and remaining > 0)
+                if remaining <= 0:
+                    st = "paid"
+                elif overdue:
+                    st = "overdue"
+                elif sup_inv.status:
+                    st = sup_inv.status
+                else:
+                    st = ("partial" if paid > 0 else "pending")
+                # Filtre statut si demandé
+                if status and st != status:
+                    continue
+                debts_all.append({
+                    "id": int(sup_inv.invoice_id),
+                    "type": "supplier",
+                    "entity_id": int(sup_inv.supplier_id) if sup_inv.supplier_id is not None else None,
+                    "entity_name": getattr(sup, 'name', None),
+                    "reference": sup_inv.invoice_number,
+                    "invoice_number": sup_inv.invoice_number,
+                    "amount": amount,
+                    "paid_amount": paid,
+                    "remaining_amount": remaining,
+                    "date": sup_inv.invoice_date,
+                    "due_date": sup_inv.due_date,
+                    "created_at": sup_inv.created_at,
+                    "status": st,
+                    "days_overdue": ( (today - sup_inv.due_date.date()).days if (sup_inv.due_date and remaining > 0) else 0 ),
+                    "description": sup_inv.description,
+                })
+
+        # Trier par date décroissante
+        debts_all.sort(key=lambda x: x.get('date') or datetime.min, reverse=True)
+        
         # Pagination côté Python sur la liste filtrée
         total = len(debts_all)
         debts = debts_all[skip: skip + limit]
@@ -265,7 +321,52 @@ async def record_payment(
 ):
     """Enregistrer un paiement pour une dette"""
     try:
-        # Paiement sur dette fournisseur si existe, sinon paiement facture client
+        # Vérifier d'abord si c'est une facture fournisseur
+        sup_inv = db.query(SupplierInvoice).filter(SupplierInvoice.invoice_id == debt_id).first()
+        if sup_inv:
+            amount = float(payment_data.get("amount", 0))
+            if amount <= 0:
+                raise HTTPException(status_code=400, detail="Le montant du paiement doit être positif")
+            if amount > float(sup_inv.remaining_amount):
+                raise HTTPException(status_code=400, detail="Le montant dépasse le solde restant")
+            
+            # Créer le paiement
+            pay = SupplierInvoicePayment(
+                supplier_invoice_id=sup_inv.invoice_id,
+                amount=amount,
+                payment_date=payment_data.get("date") or datetime.now(),
+                payment_method=payment_data.get("method"),
+                reference=payment_data.get("reference"),
+                notes=payment_data.get("notes")
+            )
+            db.add(pay)
+            
+            # Mettre à jour la facture
+            sup_inv.paid_amount = (sup_inv.paid_amount or 0) + amount
+            sup_inv.remaining_amount = (sup_inv.amount or 0) - (sup_inv.paid_amount or 0)
+            if sup_inv.remaining_amount <= 0:
+                sup_inv.remaining_amount = 0
+                sup_inv.status = "paid"
+            elif sup_inv.paid_amount > 0:
+                sup_inv.status = "partial"
+            
+            # Créer une transaction bancaire de sortie
+            from ..database import BankTransaction
+            bank_transaction = BankTransaction(
+                type="exit",
+                motif="Paiement fournisseur",
+                description=f"Paiement facture {sup_inv.invoice_number}",
+                amount=amount,
+                date=payment_data.get("date", datetime.now()).date() if isinstance(payment_data.get("date"), datetime) else date.today(),
+                method="virement" if payment_data.get("method") in ["virement", "virement bancaire"] else "cheque",
+                reference=payment_data.get("reference") or f"PAY-{sup_inv.invoice_number}"
+            )
+            db.add(bank_transaction)
+            
+            db.commit()
+            return {"message": "Paiement enregistré", "remaining": float(sup_inv.remaining_amount or 0)}
+        
+        # Sinon vérifier si c'est une dette fournisseur manuelle
         d = db.query(SupplierDebt).filter(SupplierDebt.debt_id == debt_id).first()
         if d:
             amount = float(payment_data.get("amount", 0))
@@ -336,30 +437,53 @@ async def get_debts_stats(
 ):
     """Récupérer les statistiques des dettes"""
     try:
-        # Statistiques basées sur les factures: inclure factures avec solde > 0 (pending ou partial)
+        today = date.today()
+        
+        # 1. Statistiques des créances clients
         invs = db.query(Invoice).all()
         def remaining_of(i):
             return float(i.remaining_amount if i.remaining_amount is not None else max(0.0, float(i.total or 0) - float(i.paid_amount or 0)))
         open_invoices = [i for i in invs if remaining_of(i) > 0]
-        total_amount = sum(float(i.total or 0) for i in open_invoices)
-        total_paid = sum(float(i.paid_amount or 0) for i in open_invoices)
-        total_remaining = sum(remaining_of(i) for i in open_invoices)
-        # Overdue: due_date passée et solde > 0
-        today = date.today()
-        overdue = [i for i in open_invoices if (i.due_date and getattr(i.due_date, 'date', lambda: i.due_date)() < today and remaining_of(i) > 0)]
-        # Pending: solde > 0, aucun paiement et non overdue
-        pending = [i for i in open_invoices if float(i.paid_amount or 0) == 0 and not (i in overdue)]
+        client_total_amount = sum(float(i.total or 0) for i in open_invoices)
+        client_total_paid = sum(float(i.paid_amount or 0) for i in open_invoices)
+        client_total_remaining = sum(remaining_of(i) for i in open_invoices)
+        
+        # 2. Statistiques des dettes fournisseurs
+        supplier_invs = db.query(SupplierInvoice).filter(SupplierInvoice.remaining_amount > 0).all()
+        supplier_total_amount = sum(float(i.amount or 0) for i in supplier_invs)
+        supplier_total_paid = sum(float(i.paid_amount or 0) for i in supplier_invs)
+        supplier_total_remaining = sum(float(i.remaining_amount or 0) for i in supplier_invs)
+        
+        # 3. Calcul des totaux combinés
+        total_client_debts = len(open_invoices)
+        total_supplier_debts = len(supplier_invs)
+        
+        # Overdue clients
+        client_overdue = [i for i in open_invoices if (i.due_date and getattr(i.due_date, 'date', lambda: i.due_date)() < today and remaining_of(i) > 0)]
+        # Overdue fournisseurs
+        supplier_overdue = [i for i in supplier_invs if (i.due_date and i.due_date.date() < today)]
+        
+        # Pending (non payé du tout)
+        client_pending = [i for i in open_invoices if float(i.paid_amount or 0) == 0 and not (i in client_overdue)]
+        supplier_pending = [i for i in supplier_invs if float(i.paid_amount or 0) == 0 and not (i in supplier_overdue)]
+        
         return {
-            "total_debts": len(open_invoices),
-            "client_debts_count": len(open_invoices),
-            "supplier_debts_count": 0,
-            "total_amount": total_amount,
-            "total_paid": total_paid,
-            "total_remaining": total_remaining,
-            "overdue_count": len(overdue),
-            "overdue_amount": sum(float(i.remaining_amount or 0) for i in overdue),
-            "pending_count": len(pending),
-            "pending_amount": sum(remaining_of(i) for i in pending)
+            "total_debts": total_client_debts + total_supplier_debts,
+            "client_debts_count": total_client_debts,
+            "supplier_debts_count": total_supplier_debts,
+            "client_total_amount": client_total_amount,
+            "client_total_paid": client_total_paid,
+            "client_total_remaining": client_total_remaining,
+            "supplier_total_amount": supplier_total_amount,
+            "supplier_total_paid": supplier_total_paid,
+            "supplier_total_remaining": supplier_total_remaining,
+            "total_amount": client_total_amount + supplier_total_amount,
+            "total_paid": client_total_paid + supplier_total_paid,
+            "total_remaining": client_total_remaining + supplier_total_remaining,
+            "overdue_count": len(client_overdue) + len(supplier_overdue),
+            "overdue_amount": sum(remaining_of(i) for i in client_overdue) + sum(float(i.remaining_amount or 0) for i in supplier_overdue),
+            "pending_count": len(client_pending) + len(supplier_pending),
+            "pending_amount": sum(remaining_of(i) for i in client_pending) + sum(float(i.remaining_amount or 0) for i in supplier_pending)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -18,6 +18,16 @@ from ..schemas import (
 
 router = APIRouter(prefix="/api/supplier-invoices", tags=["supplier-invoices"])
 
+# Helper: invalidate dashboard cache when financial figures change
+def _invalidate_dashboard_cache():
+    try:
+        from . import dashboard as dashboard_router  # local import to avoid potential circular import at module load
+        if hasattr(dashboard_router, "_cache") and isinstance(dashboard_router._cache, dict):
+            dashboard_router._cache.clear()
+    except Exception:
+        # Non-blocking; dashboard will eventually refresh by TTL
+        pass
+
 @router.get("/", response_model=dict)
 async def get_supplier_invoices(
     skip: int = 0,
@@ -142,7 +152,16 @@ async def create_supplier_invoice(
             raise HTTPException(status_code=400, detail="Ce numéro de facture existe déjà")
         
         # Calculer le remaining_amount
-        remaining_amount = invoice_data.amount
+        paid_amount = invoice_data.paid_amount if invoice_data.paid_amount else 0
+        remaining_amount = invoice_data.amount - paid_amount
+        
+        # Déterminer le statut initial
+        if remaining_amount <= 0:
+            status = "paid"
+        elif paid_amount > 0:
+            status = "partial"
+        else:
+            status = "pending"
         
         # Créer la facture (nouvelle structure simplifiée)
         invoice = SupplierInvoice(
@@ -150,11 +169,11 @@ async def create_supplier_invoice(
             invoice_number=invoice_data.invoice_number,
             invoice_date=invoice_data.invoice_date,
             due_date=invoice_data.due_date,
-            description=invoice_data.description,
+            description=invoice_data.description or "Facture fournisseur",
             amount=invoice_data.amount,
-            paid_amount=0,
+            paid_amount=paid_amount,
             remaining_amount=remaining_amount,
-            status="pending",
+            status=status,
             payment_method=invoice_data.payment_method,
             notes=invoice_data.notes
         )
@@ -162,6 +181,9 @@ async def create_supplier_invoice(
         db.add(invoice)
         db.commit()
         db.refresh(invoice)
+
+        # Dashboard KPIs depend on supplier invoices; clear cache
+        _invalidate_dashboard_cache()
         
         return await get_supplier_invoice(invoice.invoice_id, current_user, db)
         
@@ -205,6 +227,9 @@ async def update_supplier_invoice(
         
         db.commit()
         db.refresh(invoice)
+
+        # Dashboard KPIs depend on supplier invoices; clear cache
+        _invalidate_dashboard_cache()
         
         return await get_supplier_invoice(invoice_id, current_user, db)
         
@@ -226,16 +251,33 @@ async def delete_supplier_invoice(
         if not invoice:
             raise HTTPException(status_code=404, detail="Facture non trouvée")
         
+        # Si la facture a des paiements, on doit rétablir le chiffre d'affaires
         if invoice.paid_amount > 0:
-            raise HTTPException(status_code=400, detail="Impossible de supprimer une facture avec des paiements")
+            # Créer une transaction bancaire d'entrée pour rétablir le chiffre d'affaires
+            refund_transaction = BankTransaction(
+                type="entry",
+                motif="Annulation paiement fournisseur",
+                description=f"Rétablissement suite à suppression facture {invoice.invoice_number}",
+                amount=invoice.paid_amount,
+                date=date.today(),
+                method="virement",
+                reference=f"REFUND-{invoice.invoice_number}"
+            )
+            db.add(refund_transaction)
+            
+            # Supprimer tous les paiements associés
+            db.query(SupplierInvoicePayment).filter(
+                SupplierInvoicePayment.supplier_invoice_id == invoice_id
+            ).delete()
         
-        # Plus besoin de gérer les items dans la nouvelle structure simplifiée
-        # La facture sera simplement supprimée
-        
+        # Supprimer la facture
         db.delete(invoice)
         db.commit()
+
+        # Dashboard KPIs depend on supplier invoices; clear cache so monthly revenue updates immediately
+        _invalidate_dashboard_cache()
         
-        return {"message": "Facture fournisseur supprimée avec succès"}
+        return {"message": "Facture fournisseur supprimée avec succès, montant payé rétabli dans le chiffre d'affaires" if invoice.paid_amount > 0 else "Facture fournisseur supprimée avec succès"}
         
     except HTTPException:
         raise
@@ -297,6 +339,9 @@ async def create_payment(
         
         db.commit()
         db.refresh(payment)
+
+        # Dashboard KPIs depend on supplier invoices; clear cache
+        _invalidate_dashboard_cache()
         
         return SupplierInvoicePaymentResponse(
             payment_id=payment.payment_id,

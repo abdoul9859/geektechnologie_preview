@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "C:\Users\Aziz\Documents\Code\geektechnologie\start.py", line 6, in <module>
+    import uvicorn
+  File "C:\Users\Aziz\Documents\Code\geektechnologie\venv\Lib\site-packages\uvicorn\__init__.py", line 1, in <module>
+    from uvicorn.config import Config
+  File "C:\Users\Aziz\Documents\Code\geektechnologie\venv\Lib\site-packages\uvicorn\config.py", line 24, in <module>
+    import click
+ModuleNotFoundError: No module named 'click'

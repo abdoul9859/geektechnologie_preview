@@ -13,6 +13,8 @@ from ..database import (
     ProductVariant,
     DeliveryNote,
     DeliveryNoteItem,
+    SupplierInvoice,
+    SupplierInvoicePayment,
 )
 from ..schemas import InvoiceCreate, InvoiceResponse, InvoiceItemResponse
 from ..auth import get_current_user
@@ -713,15 +715,30 @@ async def get_invoice_stats(
         pending_invoices = db.query(Invoice).filter(Invoice.status.in_(["en attente", "SENT", "DRAFT", "OVERDUE", "partiellement payée"]) ).count()
         paid_invoices = db.query(Invoice).filter(Invoice.status.in_(["payée", "PAID"]) ).count()
         
-        # Chiffre d'affaires du mois
-        monthly_revenue = db.query(func.sum(Invoice.total)).filter(
+        # Chiffre d'affaires brut du mois
+        monthly_revenue_gross = db.query(func.sum(Invoice.total)).filter(
             func.extract('month', Invoice.date) == today.month,
             func.extract('year', Invoice.date) == today.year,
             Invoice.status.in_(["payée", "PAID"])
         ).scalar() or 0
         
-        # Chiffre d'affaires total (toutes factures payées)
-        total_revenue = db.query(func.sum(Invoice.total)).filter(Invoice.status.in_(["payée", "PAID"])) .scalar() or 0
+        # Paiements aux fournisseurs du mois
+        monthly_supplier_payments = db.query(func.sum(SupplierInvoice.paid_amount)).filter(
+            func.extract('month', SupplierInvoice.invoice_date) == today.month,
+            func.extract('year', SupplierInvoice.invoice_date) == today.year
+        ).scalar() or 0
+        
+        # Chiffre d'affaires net du mois
+        monthly_revenue = float(monthly_revenue_gross or 0) - float(monthly_supplier_payments or 0)
+        
+        # Chiffre d'affaires total brut (toutes factures payées)
+        total_revenue_gross = db.query(func.sum(Invoice.total)).filter(Invoice.status.in_(["payée", "PAID"])).scalar() or 0
+        
+        # Total des paiements aux fournisseurs
+        total_supplier_payments = db.query(func.sum(SupplierInvoice.paid_amount)).scalar() or 0
+        
+        # Chiffre d'affaires total net
+        total_revenue = float(total_revenue_gross or 0) - float(total_supplier_payments or 0)
         
         # Montant impayé (restant)
         unpaid_amount = db.query(func.sum(Invoice.remaining_amount)).filter(Invoice.status.in_(["en attente", "partiellement payée", "OVERDUE"])) .scalar() or 0
