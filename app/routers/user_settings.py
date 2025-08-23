@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import Dict, Any, Optional, List
@@ -59,42 +59,65 @@ async def get_user_setting(
 @router.post("/{setting_key}")
 async def save_user_setting(
     setting_key: str,
-    setting_data: Dict[str, Any],
+    request: Request,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Sauvegarder un paramètre utilisateur"""
-    value = setting_data.get("value")
-    
-    # Convertir en JSON si nécessaire
-    if isinstance(value, (dict, list)):
-        setting_value = json.dumps(value)
-    else:
-        setting_value = str(value)
-    
-    # Vérifier si le paramètre existe déjà
-    existing_setting = db.query(UserSettings).filter(
-        and_(
-            UserSettings.user_id == current_user.user_id,
-            UserSettings.setting_key == setting_key
-        )
-    ).first()
-    
-    if existing_setting:
-        # Mettre à jour
-        existing_setting.setting_value = setting_value
-        existing_setting.updated_at = datetime.now()
-    else:
-        # Créer nouveau
-        new_setting = UserSettings(
-            user_id=current_user.user_id,
-            setting_key=setting_key,
-            setting_value=setting_value
-        )
-        db.add(new_setting)
-    
-    db.commit()
-    return {"message": "Paramètre sauvegardé avec succès"}
+    """Sauvegarder un paramètre utilisateur.
+    Tolère deux formats de payload:
+      1) { "value": ... } (format actuel côté frontend)
+      2) valeur brute (objet JSON, tableau, chaîne, nombre)
+    """
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = None
+
+        if isinstance(payload, dict) and "value" in payload:
+            value = payload.get("value")
+        else:
+            value = payload
+
+        # Convertir en JSON si nécessaire
+        if isinstance(value, (dict, list)):
+            setting_value = json.dumps(value, ensure_ascii=False)
+        elif value is None:
+            # Représenter explicitement l'absence de valeur
+            setting_value = "null"
+        else:
+            setting_value = str(value)
+
+        # Vérifier si le paramètre existe déjà
+        existing_setting = db.query(UserSettings).filter(
+            and_(
+                UserSettings.user_id == current_user.user_id,
+                UserSettings.setting_key == setting_key
+            )
+        ).first()
+
+        if existing_setting:
+            # Mettre à jour
+            existing_setting.setting_value = setting_value
+            existing_setting.updated_at = datetime.now()
+        else:
+            # Créer nouveau
+            new_setting = UserSettings(
+                user_id=current_user.user_id,
+                setting_key=setting_key,
+                setting_value=setting_value
+            )
+            db.add(new_setting)
+
+        db.commit()
+        return {"message": "Paramètre sauvegardé avec succès"}
+    except Exception as e:
+        # En cas d'erreur inattendue, rollback et retourner 400 plutôt que 422
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{setting_key}")
 async def delete_user_setting(

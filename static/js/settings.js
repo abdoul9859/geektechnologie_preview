@@ -337,10 +337,9 @@ async function saveInvoiceSettings() {
 
         // Sauvegarder les méthodes de paiement via endpoint dédié (format JSON canonique)
         const methodsText = document.getElementById('invoicePaymentMethods').value || '';
-        await apiRequest('/api/user-settings/invoice/payment-methods', {
+await apiRequest('/api/user-settings/invoice/payment-methods', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ methods: methodsText })
+            data: { methods: methodsText }
         });
 
         // Sauvegarder dans SQLite via API (autres champs)

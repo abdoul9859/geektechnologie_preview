@@ -8,14 +8,11 @@ class ApiStorage {
 
     // ==================== USER SETTINGS ====================
 
-    async setItem(key, value) {
+async setItem(key, value) {
         try {
             const response = await apiRequest(`${this.baseUrl}/${key}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ value: value })
+                data: { value }
             });
             return response;
         } catch (error) {
@@ -66,14 +63,11 @@ class ApiStorage {
 
     // ==================== SCAN HISTORY ====================
 
-    async addScanHistory(scanData) {
+async addScanHistory(scanData) {
         try {
             const response = await apiRequest(`${this.baseUrl}/scan-history`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(scanData)
+                data: scanData
             });
             return response;
         } catch (error) {
@@ -105,17 +99,14 @@ class ApiStorage {
 
     // ==================== CACHE ====================
 
-    async setCacheItem(key, value, expiresInHours = 24) {
+async setCacheItem(key, value, expiresInHours = 24) {
         try {
             const response = await apiRequest(`${this.baseUrl}/cache/${key}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
+                data: {
                     value: value,
                     expires_in_hours: expiresInHours
-                })
+                }
             });
             return response;
         } catch (error) {
