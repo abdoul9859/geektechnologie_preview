@@ -66,15 +66,30 @@ def _ensure_condition_columns(db: Session):
                 db.execute(text("ALTER TABLE product_variants ADD COLUMN condition VARCHAR(50)"))
                 db.commit()
         else:
-            # Postgres et autres: tenter, ignorer si existe
+            # PostgreSQL: vérifier si les colonnes existent avant de les ajouter
             try:
-                db.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS condition VARCHAR(50)"))
-                db.execute(text("ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS condition VARCHAR(50)"))
+                # Vérifier si la colonne condition existe dans products
+                result = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'products' AND column_name = 'condition'"
+                ))
+                if not result.fetchone():
+                    db.execute(text("ALTER TABLE products ADD COLUMN condition VARCHAR(50)"))
+                
+                # Vérifier si la colonne condition existe dans product_variants  
+                result2 = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'product_variants' AND column_name = 'condition'"
+                ))
+                if not result2.fetchone():
+                    db.execute(text("ALTER TABLE product_variants ADD COLUMN condition VARCHAR(50)"))
+                
                 db.commit()
-            except Exception:
+            except Exception as e:
                 db.rollback()
-    except Exception:
-        pass
+                logging.error(f"Erreur lors de l'ajout des colonnes condition: {e}")
+    except Exception as e:
+        logging.error(f"Erreur dans _ensure_condition_columns: {e}")
 
 def _get_allowed_conditions(db: Session) -> dict:
     """Retourne {options: [...], default: str}. Stocké dans UserSettings (global)."""
