@@ -17,6 +17,7 @@ from ..schemas import (
 from ..auth import get_current_user, require_role
 from decimal import Decimal
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 import logging
 import time
 
@@ -415,34 +416,59 @@ async def create_product(
         # Validation selon la règle métier des mémoires
         has_variants = len(product_data.variants) > 0
         
-        if has_variants and product_data.barcode:
+        # Normaliser le code-barres produit
+        normalized_barcode = None
+        if product_data.barcode is not None:
+            bc = (product_data.barcode or "").strip()
+            normalized_barcode = bc or None
+        if has_variants:
+            normalized_barcode = None
+        
+        if has_variants and normalized_barcode:
             raise HTTPException(
                 status_code=400,
                 detail="Un produit avec variantes ne peut pas avoir de code-barres. Les codes-barres sont gérés au niveau des variantes individuelles."
             )
         
-        # Vérifier l'unicité des codes-barres
-        if product_data.barcode:
-            existing_product = db.query(Product).filter(Product.barcode == product_data.barcode).first()
-            if existing_product:
+        # Vérifier l'unicité du code-barres produit (global: produits + variantes)
+        if normalized_barcode:
+            exists_prod = db.query(Product).filter(Product.barcode == normalized_barcode).first()
+            exists_var = db.query(ProductVariant).filter(ProductVariant.barcode == normalized_barcode).first()
+            if exists_prod or exists_var:
                 raise HTTPException(status_code=400, detail="Ce code-barres existe déjà")
         
-        # Vérifier l'unicité des codes-barres des variantes
-        variant_barcodes = [v.barcode for v in product_data.variants if v.barcode]
+        # Normaliser et contrôler les variantes
+        variant_barcodes = []
+        variant_serials = []
+        normalized_variants = []
+        for v in (product_data.variants or []):
+            v_barcode = (v.barcode or "").strip() if getattr(v, 'barcode', None) is not None else None
+            v_barcode = v_barcode or None
+            v_serial = (v.imei_serial or "").strip()
+            if not v_serial:
+                raise HTTPException(status_code=400, detail="Chaque variante doit avoir un IMEI/numéro de série")
+            normalized_variants.append({
+                'imei_serial': v_serial,
+                'barcode': v_barcode,
+                'condition': (getattr(v, 'condition', None) or (product_data.condition or default_cond))
+            })
+            if v_barcode:
+                variant_barcodes.append(v_barcode)
+            variant_serials.append(v_serial)
+        # Duplicates dans payload
+        if len(set(variant_barcodes)) != len(variant_barcodes):
+            raise HTTPException(status_code=400, detail="Codes-barres de variantes en double dans la demande")
+        if len(set(variant_serials)) != len(variant_serials):
+            raise HTTPException(status_code=400, detail="IMEI/numéros de série en double dans la demande")
+        # Unicité globale pour variantes
         if variant_barcodes:
-            existing_variants = db.query(ProductVariant).filter(
-                ProductVariant.barcode.in_(variant_barcodes)
-            ).all()
-            if existing_variants:
+            exists_var_barcodes = db.query(ProductVariant).filter(ProductVariant.barcode.in_(variant_barcodes)).all()
+            exists_prod_barcodes = db.query(Product).filter(Product.barcode.in_(variant_barcodes)).all()
+            if exists_var_barcodes or exists_prod_barcodes:
                 raise HTTPException(status_code=400, detail="Un ou plusieurs codes-barres de variantes existent déjà")
-        
-        # Vérifier l'unicité des IMEI/numéros de série
-        variant_serials = [v.imei_serial for v in product_data.variants]
         if variant_serials:
-            existing_serials = db.query(ProductVariant).filter(
-                ProductVariant.imei_serial.in_(variant_serials)
-            ).all()
-            if existing_serials:
+            exists_serials = db.query(ProductVariant).filter(ProductVariant.imei_serial.in_(variant_serials)).all()
+            if exists_serials:
                 raise HTTPException(status_code=400, detail="Un ou plusieurs IMEI/numéros de série existent déjà")
         
         # Créer le produit
@@ -454,13 +480,13 @@ async def create_product(
         db_product = Product(
             name=product_data.name,
             description=product_data.description,
-            quantity=len(product_data.variants) if has_variants else product_data.quantity,
+            quantity=len(normalized_variants) if has_variants else product_data.quantity,
             price=product_data.price,
             purchase_price=product_data.purchase_price,
             category=product_data.category,
             brand=product_data.brand,
             model=product_data.model,
-            barcode=product_data.barcode if not has_variants else None,
+            barcode=normalized_barcode,
             condition=prod_condition,
             has_unique_serial=product_data.has_unique_serial,
             entry_date=product_data.entry_date,
@@ -471,20 +497,21 @@ async def create_product(
         db.flush()  # Pour obtenir l'ID du produit
         
         # Créer les variantes si présentes
-        for variant_data in product_data.variants:
+        for nv in normalized_variants:
             db_variant = ProductVariant(
                 product_id=db_product.product_id,
-                imei_serial=variant_data.imei_serial,
-                barcode=variant_data.barcode,
-                condition=(variant_data.condition or prod_condition)
+                imei_serial=nv['imei_serial'],
+                barcode=nv['barcode'],
+                condition=nv['condition']
             )
             db.add(db_variant)
             db.flush()
             
-            # Créer les attributs de la variante
-            for attr_data in variant_data.attributes:
+        # Créer les attributs de la variante (si présents dans payload d'origine)
+        for db_v, orig_v in zip(db_product.variants, (product_data.variants or [])):
+            for attr_data in getattr(orig_v, 'attributes', []) or []:
                 db_attr = ProductVariantAttribute(
-                    variant_id=db_variant.variant_id,
+                    variant_id=db_v.variant_id,
                     attribute_name=attr_data.attribute_name,
                     attribute_value=attr_data.attribute_value
                 )
@@ -508,6 +535,14 @@ async def create_product(
         
     except HTTPException:
         raise
+    except IntegrityError as ie:
+        db.rollback()
+        # Essayer de mapper les erreurs d'unicité en 400
+        msg = str(getattr(ie, 'orig', ie))
+        if 'unique' in msg.lower() or 'duplicate key value' in msg.lower():
+            raise HTTPException(status_code=400, detail="Violation d'unicité (code-barres ou IMEI déjà utilisé)")
+        logging.error(f"Erreur d'intégrité lors de la création du produit: {ie}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
     except Exception as e:
         db.rollback()
         logging.error(f"Erreur lors de la création du produit: {e}")
@@ -535,48 +570,124 @@ async def update_product(
         new_variants = product_data.variants if product_data.variants is not None else []
         will_have_variants = len(new_variants) > 0 or has_variants
         
-        if will_have_variants and product_data.barcode:
+        # Normaliser barcode produit reçu: trim -> None si vide
+        incoming_barcode = None
+        if product_data.barcode is not None:
+            bc = (product_data.barcode or "").strip()
+            incoming_barcode = bc or None
+        
+        # Règle: si le produit a/va avoir des variantes, interdire le code-barres produit
+        if will_have_variants and incoming_barcode:
             raise HTTPException(
                 status_code=400,
                 detail="Un produit avec variantes ne peut pas avoir de code-barres"
             )
         
-        # Mettre à jour les champs du produit
+        # Préparer les données à mettre à jour (sans variants)
         update_data = product_data.dict(exclude_unset=True, exclude={'variants'})
-        # Valider condition si fournie
+        
+        # Normaliser et valider la condition si fournie
         if 'condition' in update_data and update_data['condition'] is not None:
             if update_data['condition'].lower() not in allowed:
                 raise HTTPException(status_code=400, detail="Condition de produit invalide")
+        
+        # Normaliser barcode côté update_data
+        if 'barcode' in update_data:
+            update_data['barcode'] = None if will_have_variants else incoming_barcode
+        
+        # Vérifier l'unicité du code-barres produit si fourni et modifié
+        if update_data.get('barcode'):
+            existing_product = (
+                db.query(Product)
+                .filter(Product.barcode == update_data['barcode'], Product.product_id != product_id)
+                .first()
+            )
+            if existing_product:
+                raise HTTPException(status_code=400, detail="Ce code-barres existe déjà")
+        
+        # Appliquer les mises à jour champ par champ
         for field, value in update_data.items():
+            # Normaliser les chaînes vides en None pour éviter les contraintes d'unicité sur ''
+            if isinstance(value, str):
+                value = value.strip()
+                if value == "":
+                    value = None
             setattr(product, field, value)
         
         # Gérer les variantes si fournies
         if product_data.variants is not None:
+            # Normaliser les données variantes et préparer des listes pour validation
+            norm_variants = []
+            variant_barcodes = []
+            variant_serials = []
+            for v in (product_data.variants or []):
+                v_barcode = (v.barcode or "").strip() if getattr(v, 'barcode', None) is not None else None
+                v_barcode = v_barcode or None
+                v_serial = (v.imei_serial or "").strip()
+                if not v_serial:
+                    raise HTTPException(status_code=400, detail="Chaque variante doit avoir un IMEI/numéro de série")
+                norm_variants.append({
+                    'imei_serial': v_serial,
+                    'barcode': v_barcode,
+                    'condition': (getattr(v, 'condition', None) or product.condition or default_cond)
+                })
+                if v_barcode:
+                    variant_barcodes.append(v_barcode)
+                variant_serials.append(v_serial)
+            
+            # Détecter doublons dans le payload
+            if len(set(variant_barcodes)) != len(variant_barcodes):
+                raise HTTPException(status_code=400, detail="Codes-barres de variantes en double dans la demande")
+            if len(set(variant_serials)) != len(variant_serials):
+                raise HTTPException(status_code=400, detail="IMEI/numéros de série en double dans la demande")
+            
+            # Vérifier unicité globale (hors variantes de ce produit)
+            if variant_barcodes:
+                existing_variants = db.query(ProductVariant).filter(
+                    ProductVariant.barcode.in_(variant_barcodes),
+                    ProductVariant.product_id != product_id
+                ).all()
+                if existing_variants:
+                    raise HTTPException(status_code=400, detail="Un ou plusieurs codes-barres de variantes existent déjà")
+            existing_serials = db.query(ProductVariant).filter(
+                ProductVariant.imei_serial.in_(variant_serials),
+                ProductVariant.product_id != product_id
+            ).all()
+            if existing_serials:
+                raise HTTPException(status_code=400, detail="Un ou plusieurs IMEI/numéros de série existent déjà")
+            
             # Supprimer les anciennes variantes
             db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete()
             
             # Créer les nouvelles variantes
-            for variant_data in product_data.variants:
+            for nv in norm_variants:
                 db_variant = ProductVariant(
                     product_id=product_id,
-                    imei_serial=variant_data.imei_serial,
-                    barcode=variant_data.barcode,
-                    condition=(variant_data.condition or product.condition or default_cond)
+                    imei_serial=nv['imei_serial'],
+                    barcode=nv['barcode'],
+                    condition=nv['condition']
                 )
                 db.add(db_variant)
                 db.flush()
                 
-                # Créer les attributs
-                for attr_data in variant_data.attributes:
+                # Aucun attributs détaillés fournis ici; si vous avez des attributs dans le payload,
+                # ils seront déjà traités dans la version précédente via variant_data.attributes.
+                # Pour conserver ce support, on relit depuis product_data.variants synchronisé
+            
+            # Repasser pour créer les attributs si fournis
+            for db_v, orig_v in zip(product.variants, (product_data.variants or [])):
+                for attr_data in getattr(orig_v, 'attributes', []) or []:
                     db_attr = ProductVariantAttribute(
-                        variant_id=db_variant.variant_id,
+                        variant_id=db_v.variant_id,
                         attribute_name=attr_data.attribute_name,
                         attribute_value=attr_data.attribute_value
                     )
                     db.add(db_attr)
             
             # Mettre à jour la quantité basée sur les variantes
-            product.quantity = len(product_data.variants)
+            product.quantity = len(norm_variants)
+            # S'assurer que le code-barres produit est None si variantes
+            product.barcode = None
         
         db.commit()
         db.refresh(product)
@@ -585,6 +696,13 @@ async def update_product(
         
     except HTTPException:
         raise
+    except IntegrityError as ie:
+        db.rollback()
+        msg = str(getattr(ie, 'orig', ie))
+        if 'unique' in msg.lower() or 'duplicate key value' in msg.lower():
+            raise HTTPException(status_code=400, detail="Violation d'unicité (code-barres ou IMEI déjà utilisé)")
+        logging.error(f"Erreur d'intégrité lors de la mise à jour du produit: {ie}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
     except Exception as e:
         db.rollback()
         logging.error(f"Erreur lors de la mise à jour du produit: {e}")
