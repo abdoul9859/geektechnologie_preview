@@ -324,7 +324,7 @@ async def record_payment(
         # Vérifier d'abord si c'est une facture fournisseur
         sup_inv = db.query(SupplierInvoice).filter(SupplierInvoice.invoice_id == debt_id).first()
         if sup_inv:
-            amount = float(payment_data.get("amount", 0))
+            amount = round(float(payment_data.get("amount", 0)))
             if amount <= 0:
                 raise HTTPException(status_code=400, detail="Le montant du paiement doit être positif")
             if amount > float(sup_inv.remaining_amount):
@@ -367,9 +367,9 @@ async def record_payment(
             return {"message": "Paiement enregistré", "remaining": float(sup_inv.remaining_amount or 0)}
         
         # Sinon vérifier si c'est une dette fournisseur manuelle
-        d = db.query(SupplierDebt).filter(SupplierDebt.debt_id == debt_id).first()
+            d = db.query(SupplierDebt).filter(SupplierDebt.debt_id == debt_id).first()
         if d:
-            amount = float(payment_data.get("amount", 0))
+            amount = round(float(payment_data.get("amount", 0)))
             if amount <= 0:
                 raise HTTPException(status_code=400, detail="Le montant du paiement doit être positif")
             if amount > float(d.remaining_amount or (d.amount or 0) - (d.paid_amount or 0)):
@@ -397,7 +397,7 @@ async def record_payment(
         if not inv:
             raise HTTPException(status_code=404, detail="Dette/Facture non trouvée")
 
-        amount = float(payment_data.get("amount", 0))
+        amount = round(float(payment_data.get("amount", 0)))
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Le montant du paiement doit être positif")
         

@@ -12,6 +12,34 @@ import time
 
 router = APIRouter(prefix="/api/quotations", tags=["quotations"]) 
 
+# Helpers numérotation devis
+from datetime import datetime as _dt
+from sqlalchemy.orm import Session as _Session
+
+def _next_quotation_number(db: _Session, prefix: Optional[str] = None) -> str:
+    pf = (prefix or 'DEV').strip('-')
+    today_prefix = _dt.now().strftime(f"{pf}-%Y%m%d-")
+    last = (
+        db.query(Quotation)
+        .filter(Quotation.quotation_number.ilike(f"{today_prefix}%"))
+        .order_by(Quotation.quotation_id.desc())
+        .first()
+    )
+    if last and isinstance(last.quotation_number, str) and last.quotation_number.startswith(today_prefix):
+        try:
+            last_seq = int(str(last.quotation_number).split('-')[-1])
+        except Exception:
+            last_seq = 0
+        next_seq = last_seq + 1
+    else:
+        next_seq = 1
+    while True:
+        candidate = f"{today_prefix}{next_seq:04d}"
+        exists = db.query(Quotation).filter(Quotation.quotation_number == candidate).first()
+        if not exists:
+            return candidate
+        next_seq += 1
+
 # Assurer la présence de la colonne is_sent (ajout sans Alembic)
 
 def _ensure_quotation_sent_column(db: Session):
@@ -242,7 +270,9 @@ async def create_quotation(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Créer un nouveau devis"""
+    """Créer un nouveau devis.
+    - Si le numéro est vide/auto ou déjà utilisé, génère automatiquement DEV-YYYYMMDD-####.
+    """
     try:
         _ensure_quotation_sent_column(db)
         # Vérifier que le client existe
@@ -250,14 +280,17 @@ async def create_quotation(
         if not client:
             raise HTTPException(status_code=404, detail="Client non trouvé")
         
-        # Vérifier l'unicité du numéro de devis
-        existing_quotation = db.query(Quotation).filter(Quotation.quotation_number == quotation_data.quotation_number).first()
-        if existing_quotation:
-            raise HTTPException(status_code=400, detail="Ce numéro de devis existe déjà")
+        # Déterminer le numéro final (Tolère 'AUTO')
+        requested = (str(quotation_data.quotation_number or '').strip())
+        if not requested or requested.upper() in {"AUTO", "AUTOMATIC"}:
+            final_qnum = _next_quotation_number(db)
+        else:
+            exists = db.query(Quotation).filter(Quotation.quotation_number == requested).first()
+            final_qnum = requested if not exists else _next_quotation_number(db)
         
         # Créer le devis
         db_quotation = Quotation(
-            quotation_number=quotation_data.quotation_number,
+            quotation_number=final_qnum,
             client_id=quotation_data.client_id,
             date=quotation_data.date,
             expiry_date=quotation_data.expiry_date,
@@ -419,6 +452,17 @@ async def update_quotation_status(
         logging.error(f"Erreur lors de la mise à jour du statut: {e}")
         raise HTTPException(status_code=500, detail="Erreur serveur")
 
+@router.get("/next-number")
+async def get_next_quotation_number(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    try:
+        return {"quotation_number": _next_quotation_number(db)}
+    except Exception as e:
+        logging.error(f"Erreur get_next_quotation_number: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
 @router.delete("/{quotation_id}")
 async def delete_quotation(
     quotation_id: int,
@@ -466,51 +510,22 @@ async def convert_to_invoice(
         if existing_invoice_for_quote:
             return {"message": "Déjà converti", "invoice_id": existing_invoice_for_quote.invoice_id, "invoice_number": existing_invoice_for_quote.invoice_number}
         
-        # Numéro de facture: à partir du payload ou auto-généré avec incrément basé sur le dernier existant
+        # Numéro de facture: à partir du payload ou auto-généré
         req_number = None
         try:
             if payload and isinstance(payload, dict):
-                req_number = (payload.get("invoice_number") or "").strip() or None
+                tmp = (payload.get("invoice_number") or "").strip()
+                req_number = tmp or None
         except Exception:
             req_number = None
 
-        # Préfixe du jour: FAC-YYYYMMDD-
-        from datetime import datetime as _dt
-        today_prefix = _dt.now().strftime("FAC-%Y%m%d-")
-
-        def _next_number(prefix: str) -> str:
-            # Récupérer la dernière facture du jour par ID décroissant
-            last = (
-                db.query(Invoice)
-                .filter(Invoice.invoice_number.ilike(f"{prefix}%"))
-                .order_by(Invoice.invoice_id.desc())
-                .first()
-            )
-            if last and isinstance(last.invoice_number, str) and last.invoice_number.startswith(prefix):
-                try:
-                    last_seq = int(str(last.invoice_number).split("-")[-1])
-                except Exception:
-                    last_seq = 0
-                next_seq = last_seq + 1
-            else:
-                next_seq = 1
-            # Boucle de sécurité pour garantir l'unicité
-            while True:
-                candidate = f"{prefix}{next_seq:04d}"
-                exists = db.query(Invoice).filter(Invoice.invoice_number == candidate).first()
-                if not exists:
-                    return candidate
-                next_seq += 1
-
+        # Utiliser le helper commun d'invoices pour calculer le prochain numéro si nécessaire
+        from . import invoices as _inv_router
         if req_number:
-            # Si le numéro demandé existe déjà, on bascule automatiquement sur le prochain disponible du jour
-            existing_invoice = db.query(Invoice).filter(Invoice.invoice_number == req_number).first()
-            if existing_invoice:
-                invoice_number_final = _next_number(today_prefix)
-            else:
-                invoice_number_final = req_number
+            exists = db.query(Invoice).filter(Invoice.invoice_number == req_number).first()
+            invoice_number_final = req_number if not exists else _inv_router._next_invoice_number(db)
         else:
-            invoice_number_final = _next_number(today_prefix)
+            invoice_number_final = _inv_router._next_invoice_number(db)
         
         # Due date + paiement initial éventuel
         from datetime import timedelta

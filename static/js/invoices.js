@@ -26,6 +26,19 @@ function rowHasImei(row, imei) {
     return (row.scannedImeis || []).some(x => _normalizeCode(x) === n);
 }
 
+// Calcule le stock disponible pour un produit
+function computeAvailableStock(product) {
+    try {
+        const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
+        if (variants.length > 0) {
+            return variants.filter(v => !v.is_sold).length;
+        }
+        return Number(product.quantity || 0);
+    } catch (e) {
+        return 0;
+    }
+}
+
 // Initialisation
 document.addEventListener('DOMContentLoaded', function() {
     // Inject sort arrows like products/quotations if header present
@@ -245,17 +258,22 @@ function setupEventListeners() {
         if (query.length < 2) { suggestBox.classList.add('d-none'); suggestBox.innerHTML = ''; return; }
         try {
             const res = await axios.get('/api/products/', { params: { search: query, limit: 20 } });
-            const list = res.data?.items || res.data || [];
+            let list = res.data?.items || res.data || [];
+            // Masquer les produits en rupture (aucune variante dispo et stock 0)
+            list = list.filter(p => {
+                const variants = Array.isArray(p.variants) ? p.variants : [];
+                const hasVariants = variants.length > 0;
+                const available = hasVariants ? variants.filter(v => !v.is_sold).length : Number(p.quantity || 0);
+                return available > 0;
+            });
             suggestBox.innerHTML = (list.length ? list : [{ __empty: true }]).map(p => {
                 if (p.__empty) {
                     return '<div class="list-group-item text-muted small">Aucun produit</div>';
                 }
-                const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
-                const availableVariants = hasVariants ? (p.variants || []).filter(v => !v.is_sold).length : 0;
-                const inStock = hasVariants ? (availableVariants > 0) : ((p.quantity || 0) > 0);
-                const stockBadge = inStock
-                  ? '<span class="badge bg-success ms-2">En stock</span>'
-                  : '<span class="badge bg-danger ms-2">Rupture</span>';
+                const variants = Array.isArray(p.variants) ? p.variants : [];
+                const hasVariants = variants.length > 0;
+                const available = hasVariants ? variants.filter(v => !v.is_sold).length : Number(p.quantity || 0);
+                const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-danger'} ms-2">${available>0?('Stock: '+available):'Rupture'}</span>`;
                 const sub = [p.category, p.brand, p.model].filter(Boolean).join(' • ');
                 return `
                 <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-product-id="${p.product_id}">
@@ -953,10 +971,33 @@ function openInvoiceModal() {
         
         setDefaultDates();
         
-        // Générer un numéro de facture automatique
+        // Pré-remplir un numéro de facture fiable depuis le serveur
         if (numberEl) {
-            const nextNumber = generateNumber('FAC-', invoices.length);
-            numberEl.value = nextNumber;
+            try {
+                numberEl.value = '';
+                numberEl.placeholder = 'Chargement du numéro...';
+                axios.get('/api/invoices/next-number').then(({ data }) => {
+                    if (data && data.invoice_number) {
+                        numberEl.value = data.invoice_number;
+                        numberEl.placeholder = '';
+                    } else {
+                        // Fallback lisible si API indisponible
+                        const today = new Date();
+                        const y = today.getFullYear();
+                        const m = String(today.getMonth()+1).padStart(2,'0');
+                        const d = String(today.getDate()).padStart(2,'0');
+                        numberEl.value = `FAC-${y}${m}${d}-0001`;
+                        numberEl.placeholder = '';
+                    }
+                }).catch(() => {
+                    const today = new Date();
+                    const y = today.getFullYear();
+                    const m = String(today.getMonth()+1).padStart(2,'0');
+                    const d = String(today.getDate()).padStart(2,'0');
+                    numberEl.value = `FAC-${y}${m}${d}-0001`;
+                    numberEl.placeholder = '';
+                });
+            } catch(e) { /* ignore */ }
         }
         
         // Démarrer avec une liste vide; l'utilisateur scanne pour ajouter
@@ -1180,16 +1221,21 @@ function updateInvoiceItemsDisplay() {
 						<input type="text" class="form-control form-control-sm product-search-input" placeholder="Rechercher un produit..." data-item-id="${item.id}" />
 						<select class="form-select form-select-sm" onchange="selectProduct(${item.id}, this.value)">
 							<option value="">Sélectionner un produit</option>
-							${products.map(product => {
-								const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
-								const available = variants.filter(v => !v.is_sold).length;
-								const disabled = variants.length > 0 && available === 0;
-								const alreadySelected = selectedProductIds.has(Number(product.product_id)) && Number(product.product_id) !== Number(item.product_id);
-								return `
-								<option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${(disabled || alreadySelected) ? 'disabled' : ''}>
-									${escapeHtml(product.name)} - ${formatCurrency(product.price)} ${disabled ? '(épuisé)' : (alreadySelected ? '(déjà sélectionné)' : '')}
+							${products
+								.filter(product => {
+									const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
+									const available = variants.length > 0 ? variants.filter(v => !v.is_sold).length : Number(product.quantity || 0);
+									return available > 0; // masquer les ruptures
+								})
+								.map(product => {
+									const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
+									const available = variants.length > 0 ? variants.filter(v => !v.is_sold).length : Number(product.quantity || 0);
+									const alreadySelected = selectedProductIds.has(Number(product.product_id)) && Number(product.product_id) !== Number(item.product_id);
+									return `
+								<option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${alreadySelected ? 'disabled' : ''}>
+									${escapeHtml(product.name)} - ${formatCurrency(product.price)} (Stock: ${available}) ${alreadySelected ? '(déjà sélectionné)' : ''}
 								</option>`;
-							}).join('')}
+								}).join('')}
 						</select>
 					</div>
 					<div class="product-suggestions list-group d-none" style="position:absolute; left:0; right:0; top:100%; z-index:3000; max-height:240px; overflow:auto; width:100%; background:#fff; border:1px solid rgba(0,0,0,.125); border-radius:.25rem; box-shadow:0 2px 6px rgba(0,0,0,.15);"></div>
@@ -1211,6 +1257,7 @@ function updateInvoiceItemsDisplay() {
                     }).join('') + `<a href=\"#\" class=\"ms-1\" onclick=\"clearScannedImeis(${item.id}); return false;\">Tout supprimer</a></div>`;
                 })()}
                 ${(() => { try { const q = quoteQtyByProductId.get(Number(item.product_id)); return (typeof q === 'number') ? `<div class=\"small text-muted mt-1\">Qté devis: ${q}</div>` : ''; } catch(e){ return ''; } })()}
+                ${(() => { try { const p = (products||[]).find(pp => Number(pp.product_id) === Number(item.product_id)); if (!p) return ''; const stock = computeAvailableStock(p); const cls = stock>0 ? 'text-success' : 'text-danger'; return `<div class=\"small ${cls} mt-1\">Stock: ${stock}</div>`; } catch(e){ return ''; } })()}
             </td>
             <td>
                 <select class="form-select form-select-sm" onchange="selectVariant(${item.id}, this.value)" ${(item.is_custom || !item.product_id) ? 'disabled' : ''}>
@@ -1268,11 +1315,11 @@ function renderVariantOptions(productId, selectedVariantId) {
     if (!productId) return '';
     const variants = productVariantsByProductId.get(Number(productId)) || [];
     if (!variants.length) return '';
-    return variants.map(v => `
-        <option value="${v.variant_id}" ${String(v.variant_id) === String(selectedVariantId || '') ? 'selected' : ''} ${v.is_sold ? 'disabled' : ''}>
+    // Ne proposer que les variantes disponibles (non vendues)
+    return variants.filter(v => !v.is_sold).map(v => `
+        <option value="${v.variant_id}" ${String(v.variant_id) === String(selectedVariantId || '') ? 'selected' : ''}>
             ${escapeHtml(v.imei_serial || v.barcode || ('Variante #' + v.variant_id))}
             ${v.condition ? '(' + escapeHtml(String(v.condition).charAt(0).toUpperCase() + String(v.condition).slice(1)) + ')' : ''}
-            ${v.is_sold ? '(vendu)' : ''}
         </option>
     `).join('');
 }
@@ -1565,8 +1612,8 @@ async function saveInvoice(status) {
             try {
                 const inv = responseData || {};
                 const invId = inv.invoice_id || inv.id || document.getElementById('invoiceId').value;
-                await axios.post(`/api/invoices/${invId || ''}/payments`, {
-                    amount: parseFloat(document.getElementById('paymentNowAmount').value || '0'),
+await axios.post(`/api/invoices/${invId || ''}/payments`, {
+                    amount: Math.round(parseFloat(document.getElementById('paymentNowAmount').value || '0')),
                     payment_method: document.getElementById('paymentNowMethod').value,
                     reference: document.getElementById('paymentNowRef').value || null
                 });
@@ -1632,6 +1679,7 @@ function addPayment(invoiceId) {
     const paid = Number(invoice.paid_amount || invoice.paid || 0);
     const total = Number(invoice.total_amount || invoice.total || 0);
     const remaining = Math.max(0, total - paid);
+    const remainingInt = Math.floor(remaining);
     let summary = document.getElementById('paymentSummary');
     if (!summary) {
         summary = document.createElement('div');
@@ -1639,8 +1687,17 @@ function addPayment(invoiceId) {
         summary.className = 'alert alert-info py-2';
         container.insertBefore(summary, container.firstChild);
     }
-    summary.innerHTML = `<div><strong>Déjà payé:</strong> ${formatCurrency(paid)} &nbsp; | &nbsp; <strong>Restant:</strong> ${formatCurrency(remaining)}</div>`;
-    document.getElementById('paymentAmount').value = remaining;
+    summary.innerHTML = `<div><strong>Déjà payé:</strong> ${formatCurrency(paid)} &nbsp; | &nbsp; <strong>Restant:</strong> ${formatCurrency(remainingInt)}</div>`;
+    const paymentAmountInput = document.getElementById('paymentAmount');
+    if (paymentAmountInput) {
+        paymentAmountInput.step = '1';
+        paymentAmountInput.value = remainingInt;
+        paymentAmountInput.addEventListener('input', () => {
+            const raw = String(paymentAmountInput.value).replace(',', '.');
+            const n = Math.floor(Number(raw));
+            paymentAmountInput.value = Number.isFinite(n) && n >= 0 ? String(n) : '';
+        });
+    }
 
     const modal = new bootstrap.Modal(document.getElementById('paymentModal'));
     modal.show();
@@ -2042,7 +2099,7 @@ async function savePayment() {
     try {
         const paymentData = {
             invoice_id: parseInt(document.getElementById('paymentInvoiceId').value),
-            amount: parseFloat(document.getElementById('paymentAmount').value),
+            amount: Math.round(parseFloat(document.getElementById('paymentAmount').value)),
             payment_method: document.getElementById('paymentMethod').value,
             payment_date: document.getElementById('paymentDate').value,
             reference: document.getElementById('paymentReference').value.trim() || null,
@@ -2086,7 +2143,7 @@ function updatePaymentNowMaxAmount() {
     // Ne pas traiter si le switch n'est pas activé
     if (!paymentSwitch || !paymentSwitch.checked || !amountInput) return;
     
-    const totalAmount = parseFloat(document.getElementById('invoiceForm').dataset.total || '0');
+    const totalAmount = Math.round(parseFloat(document.getElementById('invoiceForm').dataset.total || '0'));
     const invoiceId = document.getElementById('invoiceId').value;
     
     if (invoiceId) {
@@ -2094,17 +2151,17 @@ function updatePaymentNowMaxAmount() {
         const paymentInfo = document.getElementById('existingPaymentInfo');
         if (paymentInfo && paymentInfo.style.display !== 'none') {
                     const paymentSummary = document.getElementById('paymentStatusSummary');
-                    if (paymentSummary) {
+        if (paymentSummary) {
                         // Extraire le montant restant en cherchant tous les chiffres (y compris les espaces)
                         const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*([\d\s,\.]+)\s*(?:FCFA|€|\$)?/i);
                         if (remainingMatch) {
-                            // Nettoyer le montant en supprimant les espaces et en remplaçant la virgule par un point
+                            // Nettoyer le montant puis arrondir à l'entier le plus proche
                             const cleanAmount = remainingMatch[1].replace(/\s/g, '').replace(',', '.');
-                            const remainingAmount = parseFloat(cleanAmount);
+                            const remainingAmount = Math.round(parseFloat(cleanAmount));
                             
                             if (!isNaN(remainingAmount)) {
                                 // Ne mettre à jour que si le montant actuel dépasse le maximum autorisé
-                                const currentAmount = parseFloat(amountInput.value || '0');
+                                const currentAmount = Math.round(parseFloat(amountInput.value || '0'));
                                 if (currentAmount > remainingAmount) {
                                     amountInput.value = remainingAmount.toString();
                                 }

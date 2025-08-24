@@ -60,6 +60,12 @@ function setupEventListeners() {
     if (paymentForm) {
         paymentForm.addEventListener('submit', handlePaymentFormSubmit);
     }
+
+    // Enforcer des montants entiers dans les champs numériques pertinents
+    const amountInput = document.getElementById('amount');
+    if (amountInput) enforceIntegerInput(amountInput);
+    const paymentAmountInput = document.getElementById('paymentAmount');
+    if (paymentAmountInput) enforceIntegerInput(paymentAmountInput);
 }
 
 // Définir les dates par défaut
@@ -370,7 +376,7 @@ function editDebt(id) {
     document.getElementById('debtType').value = 'supplier';
     handleDebtTypeChange();
     document.getElementById('reference').value = d.reference || '';
-    document.getElementById('amount').value = d.amount || 0;
+    document.getElementById('amount').value = Math.round(d.amount || 0);
     document.getElementById('debtDate').value = (d.date || '').split('T')[0] || '';
     document.getElementById('dueDate').value = d.due_date ? String(d.due_date).split('T')[0] : '';
     document.getElementById('paidAmount').value = d.paid_amount || 0;
@@ -395,7 +401,7 @@ async function saveDebt() {
         type: document.getElementById('debtType').value,
         reference: document.getElementById('reference').value,
         entity_id: parseInt(document.getElementById('entitySelect').value),
-        amount: parseFloat(document.getElementById('amount').value),
+        amount: Math.round(parseFloat(document.getElementById('amount').value)),
         date: document.getElementById('debtDate').value,
         due_date: document.getElementById('dueDate').value || null,
         description: document.getElementById('description').value,
@@ -433,16 +439,17 @@ function addPayment(id) {
     if (!debt) return;
 
     const remaining = (debt.amount || 0) - (debt.paid_amount || 0);
+    const remainingInt = Math.max(0, Math.floor(remaining));
     
-    if (remaining <= 0) {
+    if (remainingInt <= 0) {
         showInfo('Cette dette est déjà entièrement payée');
         return;
     }
 
     // Remplir les informations de la dette
     document.getElementById('paymentDebtId').value = debt.id;
-    document.getElementById('paymentAmount').value = remaining;
-    document.getElementById('paymentAmount').max = remaining;
+    document.getElementById('paymentAmount').value = remainingInt;
+    document.getElementById('paymentAmount').max = remainingInt;
     
     const debtInfo = document.getElementById('paymentDebtInfo');
     debtInfo.innerHTML = `
@@ -475,7 +482,7 @@ async function handlePaymentFormSubmit(e) {
 async function savePayment() {
     const debtId = document.getElementById('paymentDebtId').value;
     const paymentData = {
-        amount: parseFloat(document.getElementById('paymentAmount').value),
+        amount: Math.round(parseFloat(document.getElementById('paymentAmount').value)),
         date: document.getElementById('paymentDate').value,
         method: document.getElementById('paymentMethod').value,
         notes: document.getElementById('paymentNotes').value
@@ -656,6 +663,20 @@ function updatePagination(totalItems) {
     nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
     nextLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Suivant</a>`;
     pagination.appendChild(nextLi);
+}
+
+// Force un entier dans un input type number (gère aussi la virgule française)
+function enforceIntegerInput(input) {
+    input.setAttribute('step', '1');
+    input.addEventListener('input', () => {
+        const raw = String(input.value).replace(',', '.');
+        const n = Math.floor(Number(raw));
+        if (!Number.isFinite(n) || n < 0) {
+            input.value = '';
+        } else {
+            input.value = String(n);
+        }
+    });
 }
 
 function changePage(page) {

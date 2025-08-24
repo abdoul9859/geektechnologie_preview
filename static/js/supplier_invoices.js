@@ -703,9 +703,17 @@ async function openPaymentModal(invoiceId) {
             </div>
         `;
         
-        // Préremplir le montant avec le restant dû
-        document.getElementById('paymentAmount').value = invoice.remaining_amount;
-        document.getElementById('paymentAmount').max = invoice.remaining_amount;
+        // Préremplir le montant avec le restant dû (entier)
+        const remainingInt = Math.floor(invoice.remaining_amount || 0);
+        const paymentAmountEl = document.getElementById('paymentAmount');
+        paymentAmountEl.step = '1';
+        paymentAmountEl.value = remainingInt;
+        paymentAmountEl.max = remainingInt;
+        paymentAmountEl.addEventListener('input', () => {
+            const raw = String(paymentAmountEl.value).replace(',', '.');
+            const n = Math.floor(Number(raw));
+            paymentAmountEl.value = Number.isFinite(n) && n >= 0 ? String(n) : '';
+        });
         
         // Réinitialiser le formulaire
         document.getElementById('paymentMethodSelect').value = '';
@@ -725,7 +733,7 @@ async function openPaymentModal(invoiceId) {
 async function handlePaymentFormSubmit(e) {
     e.preventDefault();
     
-    const amount = parseFloat(document.getElementById('paymentAmount').value);
+    const amount = Math.round(parseFloat(document.getElementById('paymentAmount').value));
     const paymentDate = document.getElementById('paymentDate').value;
     const paymentMethod = document.getElementById('paymentMethodSelect').value;
     const reference = document.getElementById('paymentReference').value;

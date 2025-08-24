@@ -568,9 +568,34 @@ function openQuotationModal() {
     document.getElementById('quotationId').value = '';
     setDefaultDates();
     
-    // Générer un numéro de devis automatique
-    const nextNumber = generateNumber('DEV-', quotations.length);
-    document.getElementById('quotationNumber').value = nextNumber;
+    // Pré-remplir un numéro de devis fiable depuis le serveur
+    try {
+        const input = document.getElementById('quotationNumber');
+        if (input) {
+            input.value = '';
+            input.placeholder = 'Chargement du numéro...';
+            axios.get('/api/quotations/next-number').then(({ data }) => {
+                if (data && data.quotation_number) {
+                    input.value = data.quotation_number;
+                    input.placeholder = '';
+                } else {
+                    const t = new Date();
+                    const y = t.getFullYear();
+                    const m = String(t.getMonth()+1).padStart(2,'0');
+                    const d = String(t.getDate()).padStart(2,'0');
+                    input.value = `DEV-${y}${m}${d}-0001`;
+                    input.placeholder = '';
+                }
+            }).catch(() => {
+                const t = new Date();
+                const y = t.getFullYear();
+                const m = String(t.getMonth()+1).padStart(2,'0');
+                const d = String(t.getDate()).padStart(2,'0');
+                input.value = `DEV-${y}${m}${d}-0001`;
+                input.placeholder = '';
+            });
+        }
+    } catch(e) { /* ignore */ }
     
     // Vider les articles
     quotationItems = [];

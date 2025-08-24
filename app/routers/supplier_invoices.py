@@ -298,16 +298,20 @@ async def create_payment(
         if not invoice:
             raise HTTPException(status_code=404, detail="Facture non trouvée")
         
-        if payment_data.amount <= 0:
+        # Forcer un montant entier
+        from decimal import Decimal
+        amount_int = Decimal(str(payment_data.amount)).quantize(Decimal('1'))
+        if amount_int <= 0:
             raise HTTPException(status_code=400, detail="Le montant doit être positif")
         
-        if payment_data.amount > invoice.remaining_amount:
+        remaining_int = Decimal(str(invoice.remaining_amount or 0)).quantize(Decimal('1'))
+        if amount_int > remaining_int:
             raise HTTPException(status_code=400, detail="Le montant dépasse le solde restant")
         
         # Créer le paiement
         payment = SupplierInvoicePayment(
             supplier_invoice_id=invoice_id,
-            amount=payment_data.amount,
+            amount=amount_int,
             payment_date=payment_data.payment_date,
             payment_method=payment_data.payment_method,
             reference=payment_data.reference,
@@ -316,7 +320,7 @@ async def create_payment(
         db.add(payment)
         
         # Mettre à jour la facture
-        invoice.paid_amount += payment_data.amount
+        invoice.paid_amount += amount_int
         invoice.remaining_amount = invoice.amount - invoice.paid_amount
         
         # Mettre à jour le statut
@@ -330,7 +334,7 @@ async def create_payment(
             type="exit",
             motif="Paiement fournisseur",
             description=f"Paiement facture {invoice.invoice_number} - {invoice.supplier.name if invoice.supplier else 'Fournisseur'}",
-            amount=payment_data.amount,
+            amount=amount_int,
             date=payment_data.payment_date.date(),
             method="virement" if payment_data.payment_method in ["virement", "virement bancaire"] else "cheque",
             reference=payment_data.reference or f"PAY-{invoice.invoice_number}"

@@ -22,7 +22,38 @@ from ..routers.stock_movements import create_stock_movement
 import logging
 import os
 
-router = APIRouter(prefix="/api/invoices", tags=["invoices"])
+router = APIRouter(prefix="/api/invoices", tags=["invoices"]) 
+
+# Helpers de numérotation
+from datetime import datetime as _dt
+
+def _next_invoice_number(db: Session, prefix: Optional[str] = None) -> str:
+    """Génère le prochain numéro de facture unique du jour sous la forme PREFIX-YYYYMMDD-####.
+    Par défaut, PREFIX = 'FAC'.
+    """
+    pf = (prefix or 'FAC').strip('-')
+    today_prefix = _dt.now().strftime(f"{pf}-%Y%m%d-")
+    last = (
+        db.query(Invoice)
+        .filter(Invoice.invoice_number.ilike(f"{today_prefix}%"))
+        .order_by(Invoice.invoice_id.desc())
+        .first()
+    )
+    if last and isinstance(last.invoice_number, str) and last.invoice_number.startswith(today_prefix):
+        try:
+            last_seq = int(str(last.invoice_number).split("-")[-1])
+        except Exception:
+            last_seq = 0
+        next_seq = last_seq + 1
+    else:
+        next_seq = 1
+    # Garantir l'unicité si des trous existent
+    while True:
+        candidate = f"{today_prefix}{next_seq:04d}"
+        exists = db.query(Invoice).filter(Invoice.invoice_number == candidate).first()
+        if not exists:
+            return candidate
+        next_seq += 1
 
 @router.get("/", response_model=List[InvoiceResponse])
 async def list_invoices(
@@ -111,24 +142,31 @@ async def create_invoice(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Créer une nouvelle facture"""
+    """Créer une nouvelle facture.
+    - Si le numéro est vide ou déjà utilisé, génère automatiquement le prochain numéro disponible (FAC-YYYYMMDD-####).
+    """
     try:
         # Vérifier que le client existe
         client = db.query(Client).filter(Client.client_id == invoice_data.client_id).first()
         if not client:
             raise HTTPException(status_code=404, detail="Client non trouvé")
         
-        # Vérifier l'unicité du numéro de facture
-        existing_invoice = db.query(Invoice).filter(Invoice.invoice_number == invoice_data.invoice_number).first()
-        if existing_invoice:
-            raise HTTPException(status_code=400, detail="Ce numéro de facture existe déjà")
+        # Déterminer le numéro final (tolère vide/auto/duplicate)
+        requested_number = (str(invoice_data.invoice_number or '').strip())
+        final_number = None
+        if not requested_number or requested_number.upper() in {"AUTO", "AUTOMATIC"}:
+            final_number = _next_invoice_number(db)
+        else:
+            # Si déjà existant, basculer sur le prochain disponible
+            exists = db.query(Invoice).filter(Invoice.invoice_number == requested_number).first()
+            final_number = requested_number if not exists else _next_invoice_number(db)
         
         # Calculer le montant restant
         remaining_amount = invoice_data.total
         
         # Créer la facture
         db_invoice = Invoice(
-            invoice_number=invoice_data.invoice_number,
+            invoice_number=final_number,
             client_id=invoice_data.client_id,
             quotation_id=invoice_data.quotation_id,
             date=invoice_data.date,
@@ -518,6 +556,18 @@ class PaymentCreate(BaseModel):
     reference: Optional[str] = None
     notes: Optional[str] = None
 
+@router.get("/next-number")
+async def get_next_invoice_number(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Retourne le prochain numéro de facture disponible (FAC-YYYYMMDD-####)."""
+    try:
+        return {"invoice_number": _next_invoice_number(db)}
+    except Exception as e:
+        logging.error(f"Erreur get_next_invoice_number: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
 @router.post("/{invoice_id}/payments")
 async def add_payment(
     invoice_id: int,
@@ -534,9 +584,9 @@ async def add_payment(
         if payload.amount <= 0:
             raise HTTPException(status_code=400, detail="Le montant doit être positif")
         
-        # Convertir en Decimal pour correspondre aux colonnes Numeric
-        amount_dec = Decimal(str(payload.amount))
-        remaining = Decimal(str(invoice.remaining_amount or 0))
+        # Convertir en Decimal et forcer un montant entier
+        amount_dec = Decimal(str(payload.amount)).quantize(Decimal('1'))
+        remaining = Decimal(str(invoice.remaining_amount or 0)).quantize(Decimal('1'))
         if amount_dec > remaining:
             raise HTTPException(status_code=400, detail="Le montant dépasse le solde restant")
         
