@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload, load_only
-from sqlalchemy import or_, and_, func, text, exists
+from sqlalchemy import or_, and_, func, text, exists, case
 from typing import List, Optional, Dict
 from decimal import Decimal
 from ..database import (
@@ -22,6 +22,28 @@ import logging
 import time
 
 router = APIRouter(prefix="/api/products", tags=["products"])
+
+# Cache simple pour accélérer les endpoints produits (similaire au dashboard)
+_cache = {}
+_cache_duration = 300  # 5 minutes
+
+from datetime import datetime
+
+
+def _get_cache_key(*args):
+    return "|".join(str(arg) for arg in args)
+
+
+def _is_cache_valid(entry):
+    return entry and (time.time() - entry.get('timestamp', 0)) < _cache_duration
+
+
+def _get_cached_or_compute(cache_key: str, compute_func):
+    if cache_key in _cache and _is_cache_valid(_cache[cache_key]):
+        return _cache[cache_key]['data']
+    result = compute_func()
+    _cache[cache_key] = {"data": result, "timestamp": time.time()}
+    return result
 
 # Modèles Pydantic pour les catégories
 class CategoryBase(BaseModel):
@@ -266,12 +288,15 @@ async def list_products_paginated(
     brand: Optional[str] = None,
     model: Optional[str] = None,
     has_barcode: Optional[bool] = None,
+    sort_by: Optional[str] = Query("name"),  # name | category | price | stock | barcode
+    sort_dir: Optional[str] = Query("asc"),  # asc | desc
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Lister les produits avec pagination (retourne items + total)."""
     _ensure_condition_columns(db)
     # Eager-load only the necessary columns to speed up list view
+    # Note: nous n'incluons plus le selectinload des variantes pour la liste; un résumé sera calculé séparément
     base_query = (
         db.query(Product)
         .options(
@@ -291,15 +316,7 @@ async def list_products_paginated(
                 Product.entry_date,
                 Product.notes,
                 Product.created_at,
-            ),
-            selectinload(Product.variants).load_only(
-                ProductVariant.variant_id,
-                ProductVariant.imei_serial,
-                ProductVariant.barcode,
-                ProductVariant.condition,
-                ProductVariant.is_sold,
-                ProductVariant.created_at,
-            ),
+            )
         )
     )
 
@@ -366,22 +383,106 @@ async def list_products_paginated(
     elif has_variants is False:
         base_query = base_query.filter(~pv_exists_any)
 
+    # Prepare join for stock sorting: available variants per product (non sold)
+    available_variants_sub = (
+        db.query(
+            ProductVariant.product_id.label('product_id'),
+            func.sum(case((ProductVariant.is_sold == False, 1), else_=0)).label('available')
+        )
+        .group_by(ProductVariant.product_id)
+        .subquery()
+    )
+    base_query = base_query.outerjoin(available_variants_sub, available_variants_sub.c.product_id == Product.product_id)
+
+    # Apply ordering
+    sort_key = (sort_by or "name").strip().lower()
+    sort_dir_key = (sort_dir or "asc").strip().lower()
+    dir_desc = sort_dir_key == 'desc'
+    stock_expr = func.coalesce(available_variants_sub.c.available, Product.quantity)
+
+    if sort_key == 'price':
+        order_expr = Product.price.desc() if dir_desc else Product.price.asc()
+    elif sort_key == 'category':
+        order_expr = Product.category.desc() if dir_desc else Product.category.asc()
+    elif sort_key == 'barcode':
+        order_expr = Product.barcode.desc() if dir_desc else Product.barcode.asc()
+    elif sort_key == 'stock':
+        order_expr = stock_expr.desc() if dir_desc else stock_expr.asc()
+    else:  # name (default)
+        order_expr = Product.name.desc() if dir_desc else Product.name.asc()
+
+    base_query = base_query.order_by(order_expr, Product.product_id.asc())
+
     start_time = time.time()
-    total = base_query.count()
+    # Calculer le total AVANT les jointures/tri pour de meilleures perfs
+    filtered_query = base_query
+    total = filtered_query.count()
     count_time = time.time()
-    logging.info(f"Product query count took: {count_time - start_time:.4f} seconds")
+    logging.info(f"Product count (filtered) took: {count_time - start_time:.4f} seconds")
 
     skip = (page - 1) * page_size
     items = base_query.offset(skip).limit(page_size).all()
-    # Si un filtre de condition est actif, ne retourner que les variantes correspondant à cette condition
-    if condition:
-        cond_lower = (condition or "").strip().lower()
-        for p in items:
-            try:
-                _ = p.variants  # force load
-                p.variants = [v for v in (p.variants or []) if ((v.condition or "").strip().lower() == cond_lower)]
-            except Exception:
-                pass
+
+    # Calcul d'un résumé variantes pour les produits affichés (un seul aller-retour DB)
+    product_ids = [p.product_id for p in items]
+    variant_summary_map = {}
+    if product_ids:
+        # Ensemble des produits qui ont au moins une variante (vendue ou non)
+        variant_any_rows = (
+            db.query(ProductVariant.product_id)
+            .filter(ProductVariant.product_id.in_(product_ids))
+            .group_by(ProductVariant.product_id)
+            .all()
+        )
+        has_variants_set = {r[0] for r in variant_any_rows}
+
+        # Compte des variantes disponibles et répartition par condition (uniquement non vendues)
+        rows = (
+            db.query(
+                ProductVariant.product_id,
+                func.lower(func.coalesce(func.trim(ProductVariant.condition), '')).label('cond_key'),
+                func.count(ProductVariant.variant_id).label('available_by_condition')
+            )
+            .filter(
+                ProductVariant.product_id.in_(product_ids),
+                ProductVariant.is_sold == False
+            )
+            .group_by(
+                ProductVariant.product_id,
+                ProductVariant.condition
+            )
+            .all()
+        )
+        # Agréger par produit
+        for pid in product_ids:
+            variant_summary_map[pid] = {
+                'has_variants': pid in has_variants_set,
+                'available': 0,
+                'by_condition': {}
+            }
+        for pid, cond_key, available_by_cond in rows:
+            entry = variant_summary_map.get(pid)
+            if entry is None:
+                entry = {'has_variants': pid in has_variants_set, 'available': 0, 'by_condition': {}}
+                variant_summary_map[pid] = entry
+            key = (cond_key or '').strip() or 'inconnu'
+            count_val = int(available_by_cond or 0)
+            entry['by_condition'][key] = int((entry['by_condition'].get(key, 0)) + count_val)
+            entry['available'] = entry['available'] + count_val
+
+    # Injecter les champs légers dans les objets Product renvoyés (les pydantic ProductListItem les acceptera)
+    for p in items:
+        try:
+            sum_entry = variant_summary_map.get(p.product_id)
+            p.has_variants = bool(sum_entry.get('has_variants')) if sum_entry else False
+            p.variants_available = int(sum_entry.get('available', 0)) if sum_entry else 0
+            p.variant_condition_counts = sum_entry.get('by_condition', {}) if sum_entry else {}
+            # éviter de renvoyer toutes les variantes pour la liste
+            if hasattr(p, 'variants'):
+                p.variants = []
+        except Exception:
+            pass
+
     fetch_time = time.time()
     logging.info(f"Product query fetch took: {fetch_time - count_time:.4f} seconds")
     logging.info(f"Total paginated request took: {fetch_time - start_time:.4f} seconds")
@@ -879,30 +980,37 @@ async def get_categories(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Obtenir la liste des catégories avec le nombre de produits associés"""
-    # Requête pour obtenir les catégories de la table Category avec le nombre de produits
-    categories_with_count = db.query(
-        Category.category_id.label('id'),
-        Category.name.label('name'),
-        Category.requires_variants.label('requires_variants'),
-        func.count(Product.product_id).label('product_count')
-    ).outerjoin(
-        Product, Category.name == Product.category
-    ).group_by(
-        Category.category_id, Category.name, Category.requires_variants
-    ).all()
-    
-    # Convertir en liste de dictionnaires pour la réponse
-    result = []
-    for cat in categories_with_count:
-        result.append({
-            "id": str(cat.id),
-            "name": str(cat.name),
-            "requires_variants": bool(getattr(cat, 'requires_variants', False)),
-            "product_count": int(cat.product_count or 0)
-        })
-    
-    return result
+    """Obtenir la liste des catégories avec le nombre de produits associés (mis en cache 5 min)"""
+    try:
+        cache_key = _get_cache_key("product_categories")
+
+        def compute():
+            rows = db.query(
+                Category.category_id.label('id'),
+                Category.name.label('name'),
+                Category.requires_variants.label('requires_variants'),
+                func.count(Product.product_id).label('product_count')
+            ).outerjoin(
+                Product, Category.name == Product.category
+            ).group_by(
+                Category.category_id, Category.name, Category.requires_variants
+            ).all()
+
+            return [
+                {
+                    "id": str(r.id),
+                    "name": str(r.name),
+                    "requires_variants": bool(getattr(r, 'requires_variants', False)),
+                    "product_count": int(r.product_count or 0),
+                }
+                for r in rows
+            ]
+
+        result = _get_cached_or_compute(cache_key, compute)
+        return result
+    except Exception as e:
+        logging.error(f"Erreur /products/categories: {e}")
+        return []
 
 @router.get("/categories/{category_id}", response_model=CategoryResponse)
 async def get_category(
@@ -1299,3 +1407,150 @@ async def get_categories_list(
     """Obtenir la liste des catégories uniques (ancien format)"""
     categories = db.query(Product.category).distinct().filter(Product.category.isnot(None)).all()
     return [cat[0] for cat in categories if cat[0]]
+
+
+@router.get("/stats")
+async def get_products_stats(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Endpoint agrégé et mis en cache pour accélérer la page Produits."""
+    try:
+        cache_key = _get_cache_key("products_stats")
+
+        def compute():
+            total_products = db.query(func.count(Product.product_id)).scalar() or 0
+
+            # Produits avec variantes (distinct product_id)
+            with_variants = db.query(func.count(func.distinct(ProductVariant.product_id))).scalar() or 0
+            without_variants = int(total_products) - int(with_variants)
+
+            # Sous-requête: variantes disponibles (non vendues) par produit
+            available_variants_sub = (
+                db.query(
+                    ProductVariant.product_id.label('product_id'),
+func.sum(case((ProductVariant.is_sold == False, 1), else_=0)).label('available')
+                )
+                .group_by(ProductVariant.product_id)
+                .subquery()
+            )
+
+            # En stock: quantité > 0 OU variantes disponibles > 0
+            in_stock = (
+                db.query(func.count(Product.product_id))
+                .outerjoin(available_variants_sub, available_variants_sub.c.product_id == Product.product_id)
+                .filter(or_(Product.quantity > 0, available_variants_sub.c.available > 0))
+                .scalar()
+                or 0
+            )
+
+            # Rupture de stock: (quantité <= 0 ou NULL) ET (aucune variante disponible)
+            out_of_stock = (
+                db.query(func.count(Product.product_id))
+                .outerjoin(available_variants_sub, available_variants_sub.c.product_id == Product.product_id)
+                .filter(
+                    and_(
+                        or_(Product.quantity <= 0, Product.quantity.is_(None)),
+                        or_(available_variants_sub.c.available == None, available_variants_sub.c.available <= 0)
+                    )
+                )
+                .scalar()
+                or 0
+            )
+
+            # Codes-barres
+            with_barcode = (
+                db.query(func.count(Product.product_id))
+                .filter(Product.barcode.isnot(None), func.length(func.trim(Product.barcode)) > 0)
+                .scalar()
+                or 0
+            )
+            without_barcode = int(total_products) - int(with_barcode)
+
+            # Catégories + compte produits
+            categories_with_count = db.query(
+                Category.category_id.label('id'),
+                Category.name.label('name'),
+                Category.requires_variants.label('requires_variants'),
+                func.count(Product.product_id).label('product_count')
+            ).outerjoin(
+                Product, Category.name == Product.category
+            ).group_by(
+                Category.category_id, Category.name, Category.requires_variants
+            ).all()
+            categories = [
+                {
+                    "id": str(cat.id),
+                    "name": str(cat.name),
+                    "requires_variants": bool(getattr(cat, 'requires_variants', False)),
+                    "product_count": int(cat.product_count or 0),
+                }
+                for cat in categories_with_count
+            ]
+
+            # État/conditions autorisées
+            conditions_cfg = _get_allowed_conditions(db)
+
+            return {
+                "total_products": int(total_products),
+                "with_variants": int(with_variants),
+                "without_variants": int(without_variants),
+                "in_stock": int(in_stock),
+                "out_of_stock": int(out_of_stock),
+                "with_barcode": int(with_barcode),
+                "without_barcode": int(without_barcode),
+                "categories": categories,
+                "allowed_conditions": conditions_cfg,
+                "cached_at": datetime.now().isoformat(),
+            }
+
+        result = _get_cached_or_compute(cache_key, compute)
+        return result
+    except Exception as e:
+        logging.error(f"Erreur /products/stats: {e}")
+        # Fallback minimal
+        try:
+            conds = _get_allowed_conditions(db)
+        except Exception:
+            conds = {"options": DEFAULT_CONDITIONS, "default": DEFAULT_CONDITIONS[0]}
+        return {
+            "total_products": 0,
+            "with_variants": 0,
+            "without_variants": 0,
+            "in_stock": 0,
+            "out_of_stock": 0,
+            "with_barcode": 0,
+            "without_barcode": 0,
+            "categories": [],
+            "allowed_conditions": conds,
+            "cached_at": datetime.now().isoformat(),
+        }
+
+
+@router.delete("/cache")
+async def clear_products_cache(current_user = Depends(get_current_user)):
+    """Vider le cache lié aux endpoints produits (admin recommandé)."""
+    try:
+        global _cache
+        _cache.clear()
+        return {"message": "Cache produits vidé", "timestamp": datetime.now().isoformat()}
+    except Exception as e:
+        logging.error(f"Erreur clear products cache: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors du vidage du cache")
+
+
+@router.get("/cache/info")
+async def products_cache_info(current_user = Depends(get_current_user)):
+    """Informations de debug sur le cache produits."""
+    entries = []
+    now_ts = time.time()
+    for k, v in _cache.items():
+        age = now_ts - v.get('timestamp', 0)
+        valid = age < _cache_duration
+        entries.append({
+            "key": k,
+            "age_seconds": int(age),
+            "is_valid": valid,
+            "expires_in": int(_cache_duration - age) if valid else 0,
+        })
+    return {"cache_duration_seconds": _cache_duration, "total_entries": len(entries), "entries": entries}

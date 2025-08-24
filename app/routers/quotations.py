@@ -1,14 +1,37 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, text, and_, or_
 from typing import List, Optional
-from datetime import datetime, date
+from datetime import datetime, date as DateType
+from pydantic import BaseModel
 from ..database import get_db, Quotation, QuotationItem, Client, Product, Invoice
 from ..schemas import QuotationCreate, QuotationResponse
 from ..auth import get_current_user
 import logging
+import time
 
-router = APIRouter(prefix="/api/quotations", tags=["quotations"])
+router = APIRouter(prefix="/api/quotations", tags=["quotations"]) 
+
+# Assurer la présence de la colonne is_sent (ajout sans Alembic)
+
+def _ensure_quotation_sent_column(db: Session):
+    try:
+        bind = db.get_bind()
+        dialect = bind.dialect.name
+        if dialect == 'sqlite':
+            res = db.execute(text("PRAGMA table_info(quotations)"))
+            cols = [row[1] for row in res]
+            if 'is_sent' not in cols:
+                db.execute(text("ALTER TABLE quotations ADD COLUMN is_sent BOOLEAN DEFAULT 0"))
+                db.commit()
+        else:
+            result = db.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'quotations' AND column_name = 'is_sent'"))
+            if not result.fetchone():
+                db.execute(text("ALTER TABLE quotations ADD COLUMN is_sent BOOLEAN DEFAULT FALSE"))
+                db.commit()
+    except Exception:
+        # silencieux: ne bloque pas l'app si la migration ad-hoc échoue
+        pass
 
 @router.get("/", response_model=List[QuotationResponse])
 async def list_quotations(
@@ -16,12 +39,13 @@ async def list_quotations(
     limit: int = 100,
     status_filter: Optional[str] = None,
     client_id: Optional[int] = None,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
+    start_date: Optional[DateType] = None,
+    end_date: Optional[DateType] = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Lister les devis avec filtres"""
+    _ensure_quotation_sent_column(db)
     query = db.query(Quotation).order_by(desc(Quotation.created_at))
     
     if status_filter:
@@ -56,6 +80,142 @@ async def list_quotations(
         pass
     return quotations
 
+class QuotationListItem(BaseModel):
+    quotation_id: int
+    quotation_number: str
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    # Use strings to avoid Pydantic misinterpretation causing 'none_required'
+    date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    total: Optional[float] = 0
+    status: Optional[str] = None
+    is_sent: Optional[bool] = False
+    invoice_id: Optional[int] = None
+
+class PaginatedQuotationsResponse(BaseModel):
+    items: List[QuotationListItem]
+    total: int
+    total_accepted: int
+    total_pending: int
+    total_value: float
+
+@router.get("/paginated", response_model=PaginatedQuotationsResponse)
+async def list_quotations_paginated(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    status_filter: Optional[str] = None,
+    client_search: Optional[str] = None,
+    start_date: Optional[DateType] = None,
+    end_date: Optional[DateType] = None,
+    sort_by: Optional[str] = Query("date"),  # date | number | total | status | sent
+    sort_dir: Optional[str] = Query("desc"), # asc | desc
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Lister les devis avec pagination et filtres légers pour la liste."""
+    _ensure_quotation_sent_column(db)
+
+    # Sous-requête facture par devis (une ligne par devis)
+    inv_sub = (
+        db.query(Invoice.quotation_id.label('quotation_id'), func.max(Invoice.invoice_id).label('invoice_id'))
+        .group_by(Invoice.quotation_id)
+        .subquery()
+    )
+
+    base = db.query(
+        Quotation.quotation_id,
+        Quotation.quotation_number,
+        Quotation.client_id,
+        Quotation.date,
+        Quotation.expiry_date,
+        Quotation.total,
+        Quotation.status,
+        Quotation.is_sent,
+        Client.name.label('client_name'),
+        inv_sub.c.invoice_id
+    ).outerjoin(Client, Client.client_id == Quotation.client_id)
+    base = base.outerjoin(inv_sub, inv_sub.c.quotation_id == Quotation.quotation_id)
+
+    # Filtres
+    if status_filter:
+        base = base.filter(Quotation.status == status_filter)
+    if client_search:
+        like = f"%{client_search.strip()}%"
+        base = base.filter(Client.name.ilike(like))
+    if start_date:
+        base = base.filter(func.date(Quotation.date) >= start_date)
+    if end_date:
+        base = base.filter(func.date(Quotation.date) <= end_date)
+
+    # Compteurs agrégés (basés sur mêmes filtres)
+    agg_base = db.query(Quotation)
+    if status_filter:
+        agg_base = agg_base.filter(Quotation.status == status_filter)
+    if client_search:
+        agg_base = agg_base.join(Client).filter(Client.name.ilike(f"%{client_search.strip()}%"))
+    if start_date:
+        agg_base = agg_base.filter(func.date(Quotation.date) >= start_date)
+    if end_date:
+        agg_base = agg_base.filter(func.date(Quotation.date) <= end_date)
+
+    start_ts = time.time()
+    total = agg_base.count()
+    total_accepted = agg_base.filter(Quotation.status == 'accepté').count()
+    total_pending = agg_base.filter(Quotation.status == 'en attente').count()
+    # Calcul du total via la même base filtrée, sans produit cartésien
+    total_value = agg_base.with_entities(func.coalesce(func.sum(Quotation.total), 0)).scalar() or 0
+
+    # Tri
+    key = (sort_by or 'date').lower()
+    desc_dir = (sort_dir or 'desc').lower() == 'desc'
+    if key == 'number':
+        order = Quotation.quotation_number.desc() if desc_dir else Quotation.quotation_number.asc()
+    elif key == 'total':
+        order = Quotation.total.desc() if desc_dir else Quotation.total.asc()
+    elif key == 'status':
+        order = Quotation.status.desc() if desc_dir else Quotation.status.asc()
+    elif key == 'sent':
+        order = Quotation.is_sent.desc() if desc_dir else Quotation.is_sent.asc()
+    else:
+        order = Quotation.date.desc() if desc_dir else Quotation.date.asc()
+    base = base.order_by(order, Quotation.quotation_id.desc())
+
+    # Pagination
+    skip = (page - 1) * page_size
+    rows = base.offset(skip).limit(page_size).all()
+
+    items = []
+    from datetime import datetime as _dt
+    for r in rows:
+        d = r[3]
+        ed = r[4]
+        if isinstance(d, _dt):
+            d = d.date()
+        if isinstance(ed, _dt):
+            ed = ed.date()
+        items.append({
+            'quotation_id': int(r[0]),
+            'quotation_number': r[1],
+            'client_id': int(r[2]) if r[2] is not None else None,
+            'date': (d.isoformat() if hasattr(d, 'isoformat') else (str(d) if d is not None else None)),
+            'expiry_date': (ed.isoformat() if hasattr(ed, 'isoformat') else (str(ed) if ed is not None else None)),
+            'total': float(r[5] or 0),
+            'status': r[6],
+            'is_sent': bool(r[7]) if r[7] is not None else False,
+            'client_name': r[8],
+            'invoice_id': int(r[9]) if r[9] is not None else None,
+        })
+
+    logging.info(f"/quotations/paginated total={total} took {time.time()-start_ts:.3f}s")
+    return {
+        'items': items,
+        'total': int(total),
+        'total_accepted': int(total_accepted),
+        'total_pending': int(total_pending),
+        'total_value': float(total_value or 0),
+    }
+
 @router.get("/{quotation_id}", response_model=QuotationResponse)
 async def get_quotation(
     quotation_id: int,
@@ -63,6 +223,7 @@ async def get_quotation(
     current_user = Depends(get_current_user)
 ):
     """Obtenir un devis par ID"""
+    _ensure_quotation_sent_column(db)
     quotation = db.query(Quotation).filter(Quotation.quotation_id == quotation_id).first()
     if not quotation:
         raise HTTPException(status_code=404, detail="Devis non trouvé")
@@ -83,6 +244,7 @@ async def create_quotation(
 ):
     """Créer un nouveau devis"""
     try:
+        _ensure_quotation_sent_column(db)
         # Vérifier que le client existe
         client = db.query(Client).filter(Client.client_id == quotation_data.client_id).first()
         if not client:
@@ -148,6 +310,7 @@ async def update_quotation(
 ):
     """Mettre à jour un devis existant et ses lignes."""
     try:
+        _ensure_quotation_sent_column(db)
         quotation = db.query(Quotation).filter(Quotation.quotation_id == quotation_id).first()
         if not quotation:
             raise HTTPException(status_code=404, detail="Devis non trouvé")
@@ -234,6 +397,7 @@ async def update_quotation_status(
 ):
     """Mettre à jour le statut d'un devis"""
     try:
+        _ensure_quotation_sent_column(db)
         quotation = db.query(Quotation).filter(Quotation.quotation_id == quotation_id).first()
         if not quotation:
             raise HTTPException(status_code=404, detail="Devis non trouvé")
@@ -263,6 +427,7 @@ async def delete_quotation(
 ):
     """Supprimer un devis"""
     try:
+        _ensure_quotation_sent_column(db)
         quotation = db.query(Quotation).filter(Quotation.quotation_id == quotation_id).first()
         if not quotation:
             raise HTTPException(status_code=404, detail="Devis non trouvé")
@@ -286,6 +451,7 @@ async def convert_to_invoice(
 ):
     """Convertir un devis en facture"""
     try:
+        _ensure_quotation_sent_column(db)
         from ..database import Invoice, InvoiceItem, InvoicePayment
         
         quotation = db.query(Quotation).filter(Quotation.quotation_id == quotation_id).first()
@@ -444,4 +610,28 @@ async def convert_to_invoice(
     except Exception as e:
         db.rollback()
         logging.error(f"Erreur lors de la conversion: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
+@router.put("/{quotation_id}/sent")
+async def set_quotation_sent(
+    quotation_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Basculer le champ 'is_sent' d'un devis (Oui/Non)."""
+    try:
+        _ensure_quotation_sent_column(db)
+        quotation = db.query(Quotation).filter(Quotation.quotation_id == quotation_id).first()
+        if not quotation:
+            raise HTTPException(status_code=404, detail="Devis non trouvé")
+        is_sent = bool(payload.get("is_sent", False))
+        quotation.is_sent = is_sent
+        db.commit()
+        return {"message": "Statut d'envoi mis à jour", "is_sent": is_sent}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Erreur lors de la MAJ is_sent: {e}")
         raise HTTPException(status_code=500, detail="Erreur serveur")

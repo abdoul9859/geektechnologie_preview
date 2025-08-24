@@ -7,6 +7,8 @@ let clients = [];
 let products = [];
 let productVariantsByProductId = new Map(); // product_id -> [{variant_id, imei_serial, barcode, is_sold}]
 let invoiceItems = [];
+// Tri courant (pour la liste principale)
+let currentSort = { by: 'date', dir: 'desc' };
 // Quantités d'origine issues du devis (si disponibles) par product_id
 let quoteQtyByProductId = new Map();
 // Helpers to track used IMEIs across rows
@@ -26,6 +28,44 @@ function rowHasImei(row, imei) {
 
 // Initialisation
 document.addEventListener('DOMContentLoaded', function() {
+    // Inject sort arrows like products/quotations if header present
+    try {
+        const thMap = [
+            ['number', 'Numéro'], ['client', 'Client'], ['date', 'Date'], ['due', 'Échéance'], ['total', 'Montant'], ['status', 'Statut']
+        ];
+        if (typeof window.buildSortHeader !== 'function') {
+            window.buildSortHeader = function(label, byKey) {
+                const isActive = (currentSort.by === byKey);
+                const ascActive = isActive && currentSort.dir === 'asc';
+                const descActive = isActive && currentSort.dir === 'desc';
+                return `
+                    <div class="d-flex align-items-center gap-2 sort-header">
+                        <span>${label}</span>
+                        <div class="sort-btn-group" role="group" aria-label="Trier ${label}">
+                            <button type="button" class="sort-btn ${ascActive ? 'active' : ''}" data-sort-by="${byKey}" data-sort-dir="asc" title="Trier par ${label} (croissant)">
+                                <i class="bi bi-chevron-up"></i>
+                            </button>
+                            <button type="button" class="sort-btn ${descActive ? 'active' : ''}" data-sort-by="${byKey}" data-sort-dir="desc" title="Trier par ${label} (décroissant)">
+                                <i class="bi bi-chevron-down"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            };
+        }
+        thMap.forEach(([k, label]) => {
+            const th = document.querySelector(`table thead th[data-col="${k}"]`);
+            if (th) th.innerHTML = buildSortHeader(label, k);
+        });
+        document.querySelectorAll('table thead [data-sort-by]')?.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const by = btn.getAttribute('data-sort-by');
+                const dir = btn.getAttribute('data-sort-dir');
+                currentSort = { by, dir };
+                loadInvoices();
+            });
+        });
+    } catch (e) { /* ignore */ }
     // Utiliser la nouvelle logique d'authentification basée sur cookies
     const ready = () => {
         const hasAuthManager = !!window.authManager;
@@ -328,8 +368,8 @@ async function loadInvoices() {
         showLoading();
         
         // Utiliser safeLoadData pour éviter les chargements infinis
-        const response = await safeLoadData(
-            () => axios.get('/api/invoices/'),
+const response = await safeLoadData(
+            () => axios.get('/api/invoices/', { params: { sort_by: currentSort.by, sort_dir: currentSort.dir } }),
             {
                 timeout: 8000,
                 fallbackData: [],
@@ -473,8 +513,8 @@ async function addItemByBarcode() {
                 variant_imei: null,
                 scannedImeis: [hit._variant.imei_serial],
                 quantity: 1,
-                unit_price: Number(hit.price) || 0,
-                total: Number(hit.price) || 0
+                unit_price: Math.round(Number(hit.price) || 0),
+                total: Math.round(Number(hit.price) || 0)
             });
         }
         // Fusionner si plusieurs lignes de même produit existent
@@ -494,8 +534,8 @@ async function addItemByBarcode() {
                 variant_imei: null,
                 scannedImeis: [],
                 quantity: 1,
-                unit_price: Number(hit.price) || 0,
-                total: Number(hit.price) || 0
+                unit_price: Math.round(Number(hit.price) || 0),
+                total: Math.round(Number(hit.price) || 0)
             });
         }
     }
@@ -1060,8 +1100,8 @@ function preloadPrefilledInvoiceFromQuotation(prefill) {
             variant_imei: null,
             scannedImeis: [],
             quantity: hasVariants ? Number(it.quantity || 0) : Number(it.quantity || 1),
-            unit_price: Number(it.price || 0),
-            total: Number(it.total || 0)
+            unit_price: Math.round(Number(it.price || 0)),
+            total: Math.round(Number(it.total || 0))
         });
         // Agréger quantité demandée dans le devis pour info UI
         try {
@@ -1207,7 +1247,7 @@ function selectProduct(itemId, productId) {
     if (item && product) {
         item.product_id = product.product_id;
         item.product_name = product.name;
-        item.unit_price = product.price;
+        item.unit_price = Math.round(Number(product.price) || 0);
         item.total = item.quantity * item.unit_price;
         // Reset variant when product changes
         item.variant_id = null;
@@ -1316,7 +1356,7 @@ function updateItemQuantity(itemId, quantity) {
 function updateItemPrice(itemId, price) {
     const item = invoiceItems.find(i => i.id === itemId);
     if (item) {
-        item.unit_price = parseFloat(price) || 0;
+        item.unit_price = Math.round(parseInt(price, 10) || 0);
         item.total = item.quantity * item.unit_price;
         // Update DOM in place to avoid re-render focus loss
         try {
@@ -1339,11 +1379,9 @@ function handlePriceInput(itemId, inputEl) {
     if (!inputEl) return;
     const caret = inputEl.selectionStart;
     // sanitize but keep comma and dot
-    const raw = (inputEl.value || '').replace(/[^0-9,\.]/g, '');
-    inputEl.value = raw;
-    // compute value with dot decimal
-    const normalized = raw.replace(',', '.');
-    updateItemPrice(itemId, normalized);
+    const digitsOnly = (inputEl.value || '').replace(/\D/g, '');
+    inputEl.value = digitsOnly;
+    updateItemPrice(itemId, digitsOnly);
     // restore caret position if possible
     try { inputEl.setSelectionRange(caret, caret); } catch (e) {}
 }

@@ -49,6 +49,13 @@ function setupEventListeners() {
     if (searchInput) {
         searchInput.addEventListener('input', debounce(filterClients, 300));
     }
+    // Filtres
+    document.getElementById('cityFilter')?.addEventListener('input', debounce(filterClients, 300));
+    document.getElementById('countryFilter')?.addEventListener('input', debounce(filterClients, 300));
+    document.getElementById('hasEmailFilter')?.addEventListener('change', filterClients);
+    document.getElementById('hasPhoneFilter')?.addEventListener('change', filterClients);
+    document.getElementById('createdFrom')?.addEventListener('change', filterClients);
+    document.getElementById('createdTo')?.addEventListener('change', filterClients);
 }
 
 // Utilitaire debounce
@@ -168,20 +175,43 @@ function displayClients() {
 
 // Filtrer les clients
 function filterClients() {
-    const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
-    
-    if (!searchTerm) {
-        filteredClients = [...clients];
-    } else {
-        filteredClients = clients.filter(client => 
-            (client.name || '').toLowerCase().includes(searchTerm) ||
-            (client.email || '').toLowerCase().includes(searchTerm) ||
-            (client.phone || '').toLowerCase().includes(searchTerm) ||
-            (client.contact_person || '').toLowerCase().includes(searchTerm) ||
-            (client.city || '').toLowerCase().includes(searchTerm)
-        );
-    }
-    
+    const searchTerm = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
+    const city = (document.getElementById('cityFilter')?.value || '').toLowerCase().trim();
+    const country = (document.getElementById('countryFilter')?.value || '').toLowerCase().trim();
+    const hasEmail = !!document.getElementById('hasEmailFilter')?.checked;
+    const hasPhone = !!document.getElementById('hasPhoneFilter')?.checked;
+    const createdFrom = document.getElementById('createdFrom')?.value || '';
+    const createdTo = document.getElementById('createdTo')?.value || '';
+
+    filteredClients = (clients || []).filter(client => {
+        // Recherche globale
+        if (searchTerm) {
+            const hay = [client.name, client.email, client.phone, client.contact_person, client.city]
+                .map(v => String(v || '').toLowerCase());
+            if (!hay.some(h => h.includes(searchTerm))) return false;
+        }
+        // Ville
+        if (city && !(String(client.city || '').toLowerCase().includes(city))) return false;
+        // Pays
+        if (country && !(String(client.country || '').toLowerCase().includes(country))) return false;
+        // A email / téléphone
+        if (hasEmail && !client.email) return false;
+        if (hasPhone && !client.phone) return false;
+        // Date de création entre
+        try {
+            if (createdFrom || createdTo) {
+                const raw = client.created_at || client.updated_at || null;
+                if (!raw) return false; // si on filtre par date mais pas de date côté client, on exclut
+                const d = new Date(raw);
+                if (Number.isNaN(d.getTime())) return false;
+                const ymd = d.toISOString().split('T')[0];
+                if (createdFrom && ymd < createdFrom) return false;
+                if (createdTo && ymd > createdTo) return false;
+            }
+        } catch (e) {}
+        return true;
+    });
+
     currentPage = 1;
     displayClients();
     updatePagination();
@@ -190,6 +220,12 @@ function filterClients() {
 // Réinitialiser la recherche
 function resetSearch() {
     document.getElementById('searchInput').value = '';
+    const ids = ['cityFilter','countryFilter','hasEmailFilter','hasPhoneFilter','createdFrom','createdTo'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.type === 'checkbox') el.checked = false; else el.value = '';
+    });
     filteredClients = [...clients];
     currentPage = 1;
     displayClients();

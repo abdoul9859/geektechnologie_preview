@@ -34,6 +34,16 @@ let allowedConditions = ["neuf", "occasion", "venant"]; // fallback
 let defaultCondition = "neuf";
 const PAGE_SIZE = 20;
 
+// Si le template a préchargé des stats, les utiliser pour accélérer l'init
+(function bootstrapPreloadedStats(){
+  try {
+    if (window.__preloadedAllowedConditions && Array.isArray(window.__preloadedAllowedConditions.options)) {
+      allowedConditions = window.__preloadedAllowedConditions.options;
+      defaultCondition = window.__preloadedAllowedConditions.default || allowedConditions[0] || defaultCondition;
+    }
+  } catch (e) { /* noop */ }
+})();
+
 // Vérifie que chaque carte variante remplit les attributs de catégorie requis
 function validateVariantCategoryAttributes() {
     const cards = document.querySelectorAll('.variant-card');
@@ -198,8 +208,8 @@ function attachFilterListeners() {
         currentPage = 1; loadProducts();
     }));
     const onPriceChange = () => {
-        const minv = minPriceInput ? parseFloat(minPriceInput.value) : NaN;
-        const maxv = maxPriceInput ? parseFloat(maxPriceInput.value) : NaN;
+        const minv = minPriceInput ? parseInt(minPriceInput.value, 10) : NaN;
+        const maxv = maxPriceInput ? parseInt(maxPriceInput.value, 10) : NaN;
         currentFilters.min_price = Number.isFinite(minv) ? minv : null;
         currentFilters.max_price = Number.isFinite(maxv) ? maxv : null;
         currentPage = 1; loadProducts();
@@ -231,13 +241,39 @@ function attachFilterListeners() {
 
 function initProductsPage() {
     console.log('🚀 products.js - Initialisation: chargement des produits, états et catégories...');
+
+    // Si le template a préchargé les catégories, peupler rapidement la config
+    (function hydrateCategoriesFromPreload(){
+        try {
+            const stats = window.__preloadedProductStats || {};
+            const cats = Array.isArray(stats.categories) ? stats.categories : [];
+            if (cats.length) {
+                categoryConfigByName = {};
+                categoryIdByName = {};
+                cats.forEach(c => {
+                    const name = c.name;
+                    const requires = !!c.requires_variants;
+                    categoryConfigByName[name] = { requires_variants: requires };
+                    const cid = (c.category_id != null) ? c.category_id : (c.id != null ? c.id : null);
+                    if (cid != null) categoryIdByName[name] = cid;
+                });
+            }
+        } catch(e) { /* ignore */ }
+    })();
+
     loadProducts();
+    // Charger en arrière-plan pour rafraîchir le cache local si nécessaire
     loadConditions()
         .then(() => {
             populateProductConditionSelect(); // pour le formulaire produit
             populateConditionFilter();        // pour le filtre liste
         })
-        .catch(() => {});
+        .catch(() => {
+            // fallback: si preload a fourni allowedConditions, on a déjà de quoi remplir
+            try { populateProductConditionSelect(); populateConditionFilter(); } catch(e) {}
+        });
+
+    // Charger les catégories (si pas déjà hydratées) ou pour rafraîchir
     loadCategories()
         .then(() => {
             console.log('✅ products.js - loadCategories terminé, categoryConfigByName:', Object.keys(categoryConfigByName).length, 'catégories');
@@ -265,6 +301,47 @@ function initProductsPage() {
     } catch(e) { /* ignore */ }
 
     attachFilterListeners();
+}
+
+// Etat de tri courant (par défaut: nom asc)
+let currentSort = { by: 'name', dir: 'asc' };
+
+function setSort(by, dir) {
+    const normalizedBy = (by || 'name').toLowerCase();
+    const normalizedDir = (dir || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+    currentSort = { by: normalizedBy, dir: normalizedDir };
+    currentPage = 1;
+    loadProducts();
+}
+
+function buildSortHeader(label, byKey) {
+    // Boutons personnalisés sans bord blanc, avec icônes chevrons
+    const isActive = currentSort.by === byKey;
+    const ascActive = isActive && currentSort.dir === 'asc';
+    const descActive = isActive && currentSort.dir === 'desc';
+    return `
+        <div class="d-flex align-items-center gap-2 sort-header">
+            <span>${label}</span>
+            <div class="sort-btn-group" role="group" aria-label="Trier ${label}">
+                <button type="button" class="sort-btn ${ascActive ? 'active' : ''}" data-sort-by="${byKey}" data-sort-dir="asc" title="Trier par ${label} (croissant)">
+                    <i class="bi bi-chevron-up"></i>
+                </button>
+                <button type="button" class="sort-btn ${descActive ? 'active' : ''}" data-sort-by="${byKey}" data-sort-dir="desc" title="Trier par ${label} (décroissant)">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function wireSortHeaderButtons() {
+    document.querySelectorAll('[data-sort-by]')?.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const by = btn.getAttribute('data-sort-by');
+            const dir = btn.getAttribute('data-sort-dir');
+            setSort(by, dir);
+        });
+    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -336,7 +413,9 @@ async function loadProducts() {
 
         const params = new URLSearchParams({
             page: currentPage,
-            page_size: PAGE_SIZE
+            page_size: PAGE_SIZE,
+            sort_by: currentSort.by,
+            sort_dir: currentSort.dir
         });
         
         if (currentFilters.search) params.append('search', currentFilters.search);
@@ -399,27 +478,36 @@ function displayProducts(products) {
     
     let html = '';
     products.forEach(product => {
-        const hasVariants = product.variants && product.variants.length > 0;
-        const variantsArr = Array.isArray(product.variants) ? product.variants : [];
-        const availableVariants = hasVariants ? variantsArr.filter(v => !v.is_sold).length : 0;
+        const hasVariants = (product.has_variants != null) ? !!product.has_variants : (product.variants && product.variants.length > 0);
+        const availableVariants = (product.variants_available != null) ? Number(product.variants_available) : (
+            (Array.isArray(product.variants) ? product.variants.filter(v => !v.is_sold).length : 0)
+        );
         const stockDisplay = hasVariants ? `${availableVariants} variantes` : `${product.quantity} unités`;
         const barcodeDisplay = product.barcode || (hasVariants ? 'Variantes' : 'Aucun');
 
         // Badge d'état au niveau produit: seulement si pas de variantes
         const condBadge = (!hasVariants && product.condition) ? `<span class="badge bg-secondary ms-1">${product.condition}</span>` : '';
 
-        // Comptes par état pour variantes disponibles
+        // Rupture si 0 dispo (variante) ou quantité 0 (sans variante)
+        const isOutOfStock = hasVariants ? (availableVariants <= 0) : (Number(product.quantity) <= 0);
+        const stockBadgeClass = isOutOfStock ? 'bg-danger' : (hasVariants ? 'bg-info' : 'bg-primary');
+
+        // Comptes par état pour variantes disponibles (préférence au résumé backend)
         let conditionBadges = '';
         if (hasVariants) {
             const counts = {};
-            // Initialiser avec les états configurés pour un ordre cohérent
-            (allowedConditions || []).forEach(c => counts[c] = 0);
-            variantsArr.forEach(v => {
-                if (v && !v.is_sold) {
-                    const c = (v.condition || '').toString().trim();
-                    if (c) counts[c] = (counts[c] || 0) + 1;
-                }
-            });
+            if (product.variant_condition_counts && typeof product.variant_condition_counts === 'object') {
+                Object.entries(product.variant_condition_counts).forEach(([k, v]) => { counts[k] = Number(v) || 0; });
+            } else {
+                const variantsArr = Array.isArray(product.variants) ? product.variants : [];
+                (allowedConditions || []).forEach(c => counts[c] = 0);
+                variantsArr.forEach(v => {
+                    if (v && !v.is_sold) {
+                        const c = (v.condition || '').toString().trim();
+                        if (c) counts[c] = (counts[c] || 0) + 1;
+                    }
+                });
+            }
             const parts = Object.entries(counts)
                 .filter(([, n]) => n > 0)
                 .map(([c, n]) => `<span class="badge rounded-pill bg-light text-dark border me-1">${c.charAt(0).toUpperCase()+c.slice(1)}: ${n}</span>`);
@@ -438,7 +526,7 @@ function displayProducts(products) {
                 </td>
                 <td>${formatCurrency(product.price)}</td>
                 <td>
-                    <span class="badge ${hasVariants ? 'bg-info' : 'bg-primary'}">${stockDisplay}</span>
+                    <span class="badge ${stockBadgeClass}">${stockDisplay}</span>
                     ${conditionBadges}
                 </td>
                 <td>
@@ -465,6 +553,24 @@ function displayProducts(products) {
     
     tbody.innerHTML = html;
 }
+
+// Injecte les boutons de tri dans l'en-tête du tableau si présent
+(function enhanceTableHeaderWithSort(){
+    try {
+        const nameTh = document.querySelector('#productsTable thead th[data-col="name"]');
+        const catTh = document.querySelector('#productsTable thead th[data-col="category"]');
+        const priceTh = document.querySelector('#productsTable thead th[data-col="price"]');
+        const stockTh = document.querySelector('#productsTable thead th[data-col="stock"]');
+        const barcodeTh = document.querySelector('#productsTable thead th[data-col="barcode"]');
+        if (nameTh) nameTh.innerHTML = buildSortHeader('Nom', 'name');
+        if (catTh) catTh.innerHTML = buildSortHeader('Catégorie', 'category');
+        if (priceTh) priceTh.innerHTML = buildSortHeader('Prix', 'price');
+        if (stockTh) stockTh.innerHTML = buildSortHeader('Stock', 'stock');
+        // Pas de tri pour Code-barres, gardons seulement le label
+        if (barcodeTh) barcodeTh.innerHTML = 'Code-barres';
+        wireSortHeaderButtons();
+    } catch (e) { /* ignore */ }
+})();
 
 function updatePagination() {
     const paginationContainer = document.getElementById('pagination-container');
@@ -752,8 +858,8 @@ async function loadProductForEdit(productId) {
         document.getElementById('productCategory').value = product.category || '';
         document.getElementById('productBrand').value = product.brand || '';
         document.getElementById('productModel').value = product.model || '';
-        document.getElementById('productPrice').value = product.price;
-        document.getElementById('productPurchasePrice').value = product.purchase_price || '';
+        document.getElementById('productPrice').value = Math.round(product.price || 0);
+        document.getElementById('productPurchasePrice').value = Math.round(product.purchase_price || 0);
         document.getElementById('productBarcode').value = product.barcode || '';
         document.getElementById('productQuantity').value = product.quantity;
         document.getElementById('productDescription').value = product.description || '';
@@ -1178,8 +1284,8 @@ async function saveProduct() {
             category: document.getElementById('productCategory').value,
             brand: document.getElementById('productBrand').value.trim(),
             model: document.getElementById('productModel').value.trim(),
-            price: parseFloat(document.getElementById('productPrice').value),
-            purchase_price: parseFloat(document.getElementById('productPurchasePrice').value) || 0,
+            price: parseInt(document.getElementById('productPrice').value, 10) || 0,
+            purchase_price: parseInt(document.getElementById('productPurchasePrice').value, 10) || 0,
             barcode: document.getElementById('productBarcode').value.trim(),
             quantity: parseInt(document.getElementById('productQuantity').value) || 0,
             description: document.getElementById('productDescription').value.trim(),

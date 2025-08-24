@@ -17,7 +17,7 @@
 </div>
 
 <!-- Recherche -->
-<div class="row mb-4">
+<div class="row mb-3">
     <div class="col-md-8">
         <div class="search-input">
             <i class="bi bi-search search-icon"></i>
@@ -28,6 +28,38 @@
         <button class="btn btn-outline-secondary w-100" onclick="resetSearch()">
             <i class="bi bi-arrow-clockwise me-2"></i>Réinitialiser
         </button>
+    </div>
+</div>
+
+<!-- Filtres -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <label for="cityFilter" class="form-label">Ville</label>
+        <input type="text" id="cityFilter" class="form-control" placeholder="ex: Dakar">
+    </div>
+    <div class="col-md-3">
+        <label for="countryFilter" class="form-label">Pays</label>
+        <input type="text" id="countryFilter" class="form-control" placeholder="ex: Sénégal">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Contact</label>
+        <div class="d-flex gap-3 align-items-center pt-1">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="hasEmailFilter">
+                <label class="form-check-label" for="hasEmailFilter">Email</label>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="hasPhoneFilter">
+                <label class="form-check-label" for="hasPhoneFilter">Téléphone</label>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">Créé entre</label>
+        <div class="d-flex gap-2">
+            <input type="date" id="createdFrom" class="form-control">
+            <input type="date" id="createdTo" class="form-control">
+        </div>
     </div>
 </div>
 

@@ -215,6 +215,11 @@ class ProductListItem(BaseModel):
     entry_date: Optional[datetime]
     notes: Optional[str]
     created_at: datetime
+    # Champs légers pour l'affichage de la liste (optimisation)
+    has_variants: Optional[bool] = None
+    variants_available: Optional[int] = None
+    variant_condition_counts: Optional[dict] = None
+    # Ancien champ conservé pour rétro-compatibilité
     variants: List[ProductVariantListItem] = []
 
     class Config:
@@ -302,6 +307,7 @@ class QuotationResponse(BaseModel):
     date: datetime
     expiry_date: Optional[datetime]
     status: str
+    is_sent: bool = False
     subtotal: Decimal
     tax_rate: Decimal
     tax_amount: Decimal

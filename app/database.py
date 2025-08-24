@@ -361,6 +361,7 @@ class Quotation(Base):
     date = Column(DateTime, nullable=False)
     expiry_date = Column(DateTime)
     status = Column(String(20), default="en attente")  # en attente, accepté, refusé, expiré
+    is_sent = Column(Boolean, default=False)  # champ séparé pour marquer l'envoi
     subtotal = Column(Numeric(12, 2), nullable=False)
     tax_rate = Column(Numeric(5, 2), default=18.00)
     tax_amount = Column(Numeric(12, 2), nullable=False)

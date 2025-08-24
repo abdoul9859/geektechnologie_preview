@@ -16,80 +16,102 @@
     </div>
 </div>
 
-<!-- Filtres et recherche -->
-<div class="row g-2 mb-3">
-    <div class="col-md-6">
-        <div class="search-input">
-            <i class="bi bi-search search-icon"></i>
-            <input type="text" class="form-control" id="searchInput" placeholder="Rechercher par nom, marque, modèle ou code-barres...">
+<!-- Filtres (style aligné sur la page Devis) -->
+<div id="productsFilters" class="filters-compact">
+    <div class="row mb-4">
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label for="searchInput" class="form-label">Recherche</label>
+            <input type="text" class="form-control" id="searchInput" placeholder="Nom, marque, modèle ou code-barres">
         </div>
     </div>
     <div class="col-md-3">
-        <select class="form-select" id="categoryFilter">
-            <option value="">Toutes les catégories</option>
-        </select>
+        <div class="mb-3">
+            <label for="categoryFilter" class="form-label">Catégorie</label>
+            <select class="form-select" id="categoryFilter">
+                <option value="">Toutes les catégories</option>
+            </select>
+            <div class="form-text text-muted" id="categoriesHint" style="display:none">
+                <small>Chargé à <span id="categoriesCachedAt"></span></small>
+            </div>
+        </div>
     </div>
     <div class="col-md-3">
-        <select class="form-select" id="conditionFilter">
-            <option value="">Tous les états</option>
-        </select>
-    </div>
-    
-</div>
-
-<div class="row g-2 mb-3">
-    <div class="col-md-2">
-        <div class="input-group">
-            <span class="input-group-text">Min</span>
-            <input type="number" step="0.01" class="form-control" id="minPriceFilter" placeholder="Prix">
+        <div class="mb-3">
+            <label for="conditionFilter" class="form-label">État</label>
+            <select class="form-select" id="conditionFilter">
+                <option value="">Tous les états</option>
+            </select>
+            <div class="form-text text-muted" id="conditionsHint" style="display:none">
+                <small>Options mises en cache</small>
+            </div>
         </div>
     </div>
-    <div class="col-md-2">
-        <div class="input-group">
-            <span class="input-group-text">Max</span>
-            <input type="number" step="0.01" class="form-control" id="maxPriceFilter" placeholder="Prix">
-        </div>
-    </div>
-    <div class="col-md-2">
-        <input type="text" class="form-control" id="brandFilter" placeholder="Marque">
-    </div>
-    <div class="col-md-2">
-        <input type="text" class="form-control" id="modelFilter" placeholder="Modèle">
-    </div>
-    <div class="col-md-2">
-        <select class="form-select" id="hasBarcodeFilter">
-            <option value="">Code-barres</option>
-            <option value="true">Avec code-barres</option>
-            <option value="false">Sans code-barres</option>
-        </select>
-    </div>
-    <div class="col-md-2">
-        <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="inStockFilter">
-            <label class="form-check-label" for="inStockFilter">
-                En stock uniquement
-            </label>
-        </div>
-    </div>
-</div>
-
-<div class="row g-2 mb-3">
-    <div class="col-md-2">
-        <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="hasVariantsFilter">
-            <label class="form-check-label" for="hasVariantsFilter">
-                Avec variantes
-            </label>
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label class="form-label">Variantes</label>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="hasVariantsFilter">
+                <label class="form-check-label" for="hasVariantsFilter">Avec variantes</label>
+            </div>
         </div>
     </div>
 </div>
 
 <div class="row mb-4">
-    <div class="col-md-3 ms-auto">
-        <button class="btn btn-outline-secondary w-100" onclick="resetFilters()">
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label for="minPriceFilter" class="form-label">Prix min</label>
+            <input type="number" step="1" min="0" inputmode="numeric" pattern="[0-9]*" class="form-control" id="minPriceFilter" placeholder="0">
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label for="maxPriceFilter" class="form-label">Prix max</label>
+            <input type="number" step="1" min="0" inputmode="numeric" pattern="[0-9]*" class="form-control" id="maxPriceFilter" placeholder="0">
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label for="brandFilter" class="form-label">Marque</label>
+            <input type="text" class="form-control" id="brandFilter" placeholder="Ex: Samsung">
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label for="modelFilter" class="form-label">Modèle</label>
+            <input type="text" class="form-control" id="modelFilter" placeholder="Ex: Galaxy A12">
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label for="hasBarcodeFilter" class="form-label">Code-barres</label>
+            <select class="form-select" id="hasBarcodeFilter">
+                <option value="">Tous</option>
+                <option value="true">Avec code-barres</option>
+                <option value="false">Sans code-barres</option>
+            </select>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label class="form-label">Stock</label>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="inStockFilter">
+                <label class="form-check-label" for="inStockFilter">En stock uniquement</label>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 d-flex align-items-end justify-content-end">
+        <button class="btn btn-outline-secondary" onclick="resetFilters()">
             <i class="bi bi-arrow-clockwise me-2"></i>Réinitialiser
         </button>
     </div>
+</div>
+
 </div>
 
 <!-- Liste des produits -->
@@ -101,14 +123,14 @@
     </div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-hover">
+            <table id="productsTable" class="table table-hover">
                 <thead>
                     <tr>
-                        <th>Nom</th>
-                        <th>Catégorie</th>
-                        <th>Prix</th>
-                        <th>Stock</th>
-                        <th>Code-barres</th>
+                        <th data-col="name">Nom</th>
+                        <th data-col="category">Catégorie</th>
+                        <th data-col="price">Prix</th>
+                        <th data-col="stock">Stock</th>
+                        <th data-col="barcode">Code-barres</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -197,13 +219,13 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="productPurchasePrice" class="form-label">Prix d'achat (FCFA)</label>
-                                <input type="number" class="form-control" id="productPurchasePrice" step="0.01">
+                                <input type="number" class="form-control" id="productPurchasePrice" step="1" min="0" inputmode="numeric" pattern="[0-9]*">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="productPrice" class="form-label">Prix de vente (FCFA) *</label>
-                                <input type="number" class="form-control" id="productPrice" step="0.01" required>
+                                <input type="number" class="form-control" id="productPrice" step="1" min="0" inputmode="numeric" pattern="[0-9]*" required>
                             </div>
                         </div>
                     </div>
@@ -298,5 +320,50 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/products.js?v=3"></script>
+<script>
+// Charger rapidement les stats produits (catégories + états) avant le JS principal
+// pour accélérer le premier rendu perçu
+window.__productsBoot = (async function(){
+  try {
+    const res = await axios.get('/api/products/stats');
+    const stats = res && res.data ? res.data : {};
+    // Hydrater des variables globales consommées par products.js
+    window.__preloadedProductStats = stats;
+    // Pré-peupler les filtres si possible
+    if (stats.categories && Array.isArray(stats.categories)) {
+      const categoryFilter = document.getElementById('categoryFilter');
+      const productCategory = document.getElementById('productCategory');
+      if (categoryFilter) {
+        while (categoryFilter.options.length > 1) categoryFilter.remove(1);
+      }
+      if (productCategory) {
+        while (productCategory.options.length > 1) productCategory.remove(1);
+      }
+      (stats.categories || []).forEach(c => {
+        const name = c.name || '';
+        if (!name) return;
+        if (categoryFilter) {
+          const opt = document.createElement('option');
+          opt.value = name; opt.textContent = name; categoryFilter.appendChild(opt);
+        }
+        if (productCategory) {
+          const opt2 = document.createElement('option');
+          opt2.value = name; opt2.textContent = name; productCategory.appendChild(opt2);
+        }
+      });
+      const hint = document.getElementById('categoriesHint');
+      const ca = document.getElementById('categoriesCachedAt');
+      if (hint && ca && stats.cached_at) { hint.style.display='block'; ca.textContent = new Date(stats.cached_at).toLocaleString('fr-FR'); }
+    }
+    if (stats.allowed_conditions && Array.isArray(stats.allowed_conditions.options)) {
+      window.__preloadedAllowedConditions = stats.allowed_conditions;
+      const hint = document.getElementById('conditionsHint');
+      if (hint) hint.style.display='block';
+    }
+  } catch (e) {
+    // silencieux: le JS principal gérera les fallbacks
+  }
+})();
+</script>
+<script src="/static/js/products.js?v=4"></script>
 {% endblock %}

@@ -22,6 +22,11 @@ document.addEventListener('DOMContentLoaded', function() {
         loadSettings();
         // Ne pas charger les catégories ici, elles seront chargées à la demande
         
+        // Feature flag côté client pour activer/désactiver le fallback catégories/list (désactivé par défaut)
+        if (typeof window.ENABLE_CATEGORY_LIST_FALLBACK === 'undefined') {
+            window.ENABLE_CATEGORY_LIST_FALLBACK = false;
+        }
+        
         // Ajouter des gestionnaires d'événements pour les onglets Bootstrap
         setupTabEventHandlers();
 
@@ -329,7 +334,6 @@ async function saveInvoiceSettings() {
         const settings = {
             invoicePrefix: document.getElementById('invoicePrefix').value,
             quotationPrefix: document.getElementById('quotationPrefix').value,
-            defaultTaxRate: parseFloat(document.getElementById('defaultTaxRate').value),
             paymentTerms: parseInt(document.getElementById('paymentTerms').value),
             invoiceFooter: document.getElementById('invoiceFooter').value,
             autoInvoiceNumber: document.getElementById('autoInvoiceNumber').checked
@@ -716,19 +720,45 @@ async function loadCategories() {
         );
         const data = response.data;
         
-        // Validation et normalisation des données
+        // Validation et normalisation des données (catégories déclarées)
+        let declared = [];
         if (Array.isArray(data)) {
-            categories = data.map(c => {
+            declared = data.map(c => {
                 if (typeof c === 'string') {
                     return { name: c, category_id: null, requires_variants: false, product_count: 0 };
                 }
-                const normalizedId = c.category_id ?? c.id ?? c.categoryId ?? null;
+                const rawId = c.category_id ?? c.id ?? c.categoryId ?? null;
+                const parsedId = (rawId === null || rawId === undefined || rawId === '') ? null : Number(rawId);
+                const normalizedId = Number.isFinite(parsedId) ? parsedId : null;
                 const normalizedName = c.name ?? c.label ?? '';
-                return { ...c, category_id: normalizedId, name: normalizedName };
+                const requiresVariants = typeof c.requires_variants === 'boolean' ? c.requires_variants : !!c.requiresVariants;
+                const productCount = typeof c.product_count === 'number' ? c.product_count : (c.count ?? 0);
+                return { ...c, category_id: normalizedId, name: normalizedName, requires_variants: requiresVariants, product_count: productCount };
             });
         } else {
-            categories = [];
+            declared = [];
         }
+
+        // Fallback: compléter avec les catégories détectées côté Produits (optionnel)
+        let merged = [...declared];
+        if (window.ENABLE_CATEGORY_LIST_FALLBACK) {
+            try {
+                // Fallback silencieux: si l'endpoint n'existe pas (404), ignorer sans bruit
+                const resList = await axios.get('/api/products/categories/list').catch(() => ({ data: [] }));
+                const names = Array.isArray(resList.data) ? resList.data : [];
+                const known = new Set(merged.map(c => String(c.name).toLowerCase()));
+                names.forEach(n => {
+                    const nm = String(n || '').trim();
+                    if (!nm) return;
+                    if (!known.has(nm.toLowerCase())) {
+                        merged.push({ category_id: null, name: nm, requires_variants: false, product_count: 0, _ghost: true });
+                        known.add(nm.toLowerCase());
+                    }
+                });
+            } catch (e) { /* ignore fallback errors */ }
+        }
+
+        categories = merged;
 
         console.log('[settings] categories loaded:', Array.isArray(categories) ? categories.length : 0, categories.slice ? categories.slice(0, 3) : categories);
         
@@ -758,19 +788,26 @@ async function loadCategories() {
                     <td>
                         <strong>${escapeHtml(category.name || '')}</strong>
                         ${category.requires_variants ? '<span class="badge bg-info ms-2">Variantes requises</span>' : ''}
+                        ${category._ghost ? '<span class="badge bg-light text-dark ms-2">détectée</span>' : ''}
                     </td>
                     <td>${category.product_count || '0'}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-secondary" title="Gérer les attributs" data-action="select-attributes">
+                            <button class="btn btn-outline-secondary ${category._ghost ? 'disabled' : ''}" title="Gérer les attributs" data-action="select-attributes" ${category._ghost ? 'disabled' : ''}>
                                 <i class="bi bi-sliders"></i>
                             </button>
-                            <button class="btn btn-outline-primary" onclick="editCategory(${category.category_id})">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            <button class="btn btn-outline-danger" onclick="deleteCategory(${category.category_id}, '${escapeHtml(category.name || '')}')">
-                                <i class="bi bi-trash"></i>
-                            </button>
+                            ${category.category_id != null ? `
+                                <button class="btn btn-outline-primary" onclick="editCategory(${category.category_id})">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="deleteCategory(${category.category_id}, '${escapeHtml(category.name || '')}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            ` : `
+                                <button class="btn btn-outline-primary" onclick="startCreateCategoryFromName('${escapeHtml(category.name || '')}')" title="Créer cette catégorie">
+                                    <i class="bi bi-plus-circle"></i>
+                                </button>
+                            `}
                         </div>
                     </td>
                 `;
@@ -844,6 +881,11 @@ async function saveCategory() {
         } else {
             await axios.post(url, categoryData);
         }
+
+        // Purger le cache produits pour refléter immédiatement les changements
+        try {
+            await fetch('/api/products/cache', { method: 'DELETE', credentials: 'include' });
+        } catch (e) { /* silencieux */ }
         
         // Réinitialiser le formulaire
         document.getElementById('categoryId').value = '';
@@ -869,10 +911,27 @@ async function saveCategory() {
     }
 }
 
+// Préremplir le formulaire pour créer une catégorie à partir d'un nom détecté
+function startCreateCategoryFromName(name) {
+    try {
+        document.getElementById('categoryId').value = '';
+        document.getElementById('categoryName').value = name || '';
+        document.getElementById('categoryRequiresVariants').checked = false;
+        document.getElementById('saveCategoryBtn').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Créer';
+        document.getElementById('categoryName').focus();
+    } catch (e) {}
+}
+
 // Éditer une catégorie
 function editCategory(categoryId) {
-    // Trouver la catégorie
-    const category = categories.find(c => c.category_id === Number(categoryId));
+    // Valider et normaliser l'ID
+    const targetId = Number(categoryId);
+    if (!Number.isFinite(targetId)) {
+        showError('Catégorie non trouvée');
+        return;
+    }
+    // Trouver la catégorie (comparaison numérique robuste)
+    const category = categories.find(c => Number(c.category_id) === targetId);
     
     if (!category) {
         showError('Catégorie non trouvée');
@@ -916,7 +975,10 @@ async function confirmDeleteCategory() {
         const modal = bootstrap.Modal.getInstance(document.getElementById('deleteCategoryModal'));
         modal.hide();
         
-        // Recharger les catégories
+        // Purger le cache produits puis recharger
+        try {
+            await fetch('/api/products/cache', { method: 'DELETE', credentials: 'include' });
+        } catch (e) { /* ignore */ }
         await loadCategories();
         
         showSuccess('Catégorie supprimée avec succès');
@@ -1135,3 +1197,4 @@ window.saveCategory = saveCategory;
 window.editCategory = editCategory;
 window.deleteCategory = deleteCategory;
 window.confirmDeleteCategory = confirmDeleteCategory;
+window.startCreateCategoryFromName = startCreateCategoryFromName;

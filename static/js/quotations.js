@@ -67,6 +67,7 @@ async function preloadQuotationIntoForm(quotationId) {
 // Gestion des devis
 let currentPage = 1;
 const itemsPerPage = 20;
+let currentSort = { by: 'date', dir: 'desc' };
 let quotations = [];
 let filteredQuotations = [];
 let clients = [];
@@ -74,6 +75,28 @@ let products = [];
 let quotationItems = [];
 let productVariantsByProductId = new Map(); // pour IMEI/variantes comme factures
 let productIdToStock = new Map();
+
+// Fallback: define buildSortHeader locally if not provided by products.js
+if (typeof window.buildSortHeader !== 'function') {
+    window.buildSortHeader = function(label, byKey) {
+        const isActive = (window.currentSort && window.currentSort.by === byKey);
+        const ascActive = isActive && window.currentSort.dir === 'asc';
+        const descActive = isActive && window.currentSort.dir === 'desc';
+        return `
+            <div class="d-flex align-items-center gap-2 sort-header">
+                <span>${label}</span>
+                <div class="sort-btn-group" role="group" aria-label="Trier ${label}">
+                    <button type="button" class="sort-btn ${ascActive ? 'active' : ''}" data-sort-by="${byKey}" data-sort-dir="asc" title="Trier par ${label} (croissant)">
+                        <i class="bi bi-chevron-up"></i>
+                    </button>
+                    <button type="button" class="sort-btn ${descActive ? 'active' : ''}" data-sort-by="${byKey}" data-sort-dir="desc" title="Trier par ${label} (décroissant)">
+                        <i class="bi bi-chevron-down"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    };
+}
 
 // Initialisation (cookie-based auth readiness)
 document.addEventListener('DOMContentLoaded', function() {
@@ -203,16 +226,10 @@ function updateStats() {
     try {
         const list = Array.isArray(filteredQuotations) && filteredQuotations.length ? filteredQuotations : (Array.isArray(quotations) ? quotations : []);
         const total = list.length;
-        // Acceptés (gérer FR/EN)
-        const accepted = list.filter(q => {
-            const s = String(q.status || '').toUpperCase();
-            return s === 'ACCEPTED' || s === 'ACCEPTE' || s === 'ACCEPTÉ';
-        }).length;
-        // En attente = brouillons + envoyés (gérer FR/EN)
-        const pending = list.filter(q => {
-            const s = String(q.status || '').toUpperCase();
-            return s === 'DRAFT' || s === 'SENT' || s === 'EN ATTENTE' || s === 'EN_ATTENTE' || s === 'BROUILLON' || s === 'ENVOYÉ' || s === 'ENVOYE';
-        }).length;
+        // Acceptés
+        const accepted = list.filter(q => String(q.status || '').toLowerCase() === 'accepté').length;
+        // En attente = statut 'en attente' uniquement
+        const pending = list.filter(q => String(q.status || '').toLowerCase() === 'en attente').length;
         // Valeur totale
         const totalValue = list.reduce((s, q) => s + (Number(q.total) || 0), 0);
         const elTotal = document.getElementById('totalQuotations');
@@ -229,31 +246,48 @@ function updateStats() {
 }
 
 // Charger la liste des devis
-async function loadQuotations() {
+async function loadQuotations(page = 1) {
     try {
         showLoading();
+        const params = new URLSearchParams({ page, page_size: itemsPerPage, sort_by: currentSort.by, sort_dir: currentSort.dir });
+        const statusVal = document.getElementById('statusFilter')?.value || '';
+        const clientVal = document.getElementById('clientFilter')?.value || '';
+        const dateFrom = document.getElementById('dateFromFilter')?.value || '';
+        const dateTo = document.getElementById('dateToFilter')?.value || '';
+        if (statusVal) params.append('status_filter', statusVal);
+        if (clientVal) params.append('client_search', clientVal);
+        if (dateFrom) params.append('start_date', dateFrom);
+        if (dateTo) params.append('end_date', dateTo);
+
         const response = await safeLoadData(
-            () => axios.get('/api/quotations/'),
+            () => axios.get(`/api/quotations/paginated?${params.toString()}`),
             {
                 timeout: 8000,
-                fallbackData: [],
+                fallbackData: { items: [], total: 0, total_accepted: 0, total_pending: 0, total_value: 0 },
                 errorMessage: 'Erreur lors du chargement des devis'
             }
         );
-        const payload = response?.data ?? [];
-        quotations = Array.isArray(payload) ? payload : (payload.items || []);
+        const payload = response?.data ?? { items: [], total: 0 };
+        quotations = Array.isArray(payload.items) ? payload.items : [];
         filteredQuotations = [...quotations];
+
+        // Maj stats agrégées fournies par l'API
+        try {
+            document.getElementById('totalQuotations').textContent = String(payload.total || 0);
+            document.getElementById('acceptedQuotations').textContent = String(payload.total_accepted || 0);
+            document.getElementById('pendingQuotations').textContent = String(payload.total_pending || 0);
+            document.getElementById('totalValue').textContent = formatCurrency(Number(payload.total_value || 0));
+        } catch (e) {}
 
         if (!Array.isArray(filteredQuotations) || filteredQuotations.length === 0) {
             showEmptyState();
-            updatePagination();
-            updateStats();
+            renderQuotationsPagination(page, payload.total || 0);
             return;
         }
 
+        currentPage = page;
         displayQuotations();
-        updatePagination();
-        updateStats();
+        renderQuotationsPagination(page, payload.total || 0);
     } catch (error) {
         console.error('Erreur lors du chargement des devis:', error);
         showError(error.response?.data?.detail || 'Erreur lors du chargement des devis');
@@ -340,11 +374,17 @@ function displayQuotations() {
             <td><strong>${formatCurrency(Number(quotation.total || 0))}</strong></td>
             <td>
                 <select class="form-select form-select-sm" onchange="changeQuotationStatus(${quotation.quotation_id}, this.value)">
-                    <option value="en attente" ${currentStatusFr==='en attente'?'selected':''}>Brouillon/Envoyé</option>
+                    <option value="en attente" ${currentStatusFr==='en attente'?'selected':''}>En attente</option>
                     <option value="accepté" ${currentStatusFr==='accepté'?'selected':''}>Accepté</option>
                     <option value="refusé" ${currentStatusFr==='refusé'?'selected':''}>Refusé</option>
                     <option value="expiré" ${currentStatusFr==='expiré'?'selected':''}>Expiré</option>
                 </select>
+            </td>
+            <td class="text-center">
+                <div class="form-check form-switch d-inline-flex align-items-center">
+                    <input class="form-check-input" type="checkbox" ${quotation.is_sent ? 'checked' : ''} onchange="toggleQuotationSent(${quotation.quotation_id}, this.checked)">
+                    <label class="form-check-label ms-2">Envoyé</label>
+                </div>
             </td>
             <td>
                 <div class="btn-group" role="group">
@@ -380,6 +420,17 @@ function goToInvoice(invoiceId) {
         sessionStorage.setItem('invoiceSearchQuery', String(invoiceId));
     } catch(e) {}
     window.location.href = '/invoices';
+}
+
+async function toggleQuotationSent(quotationId, isSent) {
+    try {
+        await axios.put(`/api/quotations/${quotationId}/sent`, { is_sent: !!isSent });
+        await loadQuotations();
+        await loadStats();
+        showSuccess(isSent ? 'Devis marqué comme envoyé' : 'Devis marqué comme non envoyé');
+    } catch (e) {
+        showError(e.response?.data?.detail || 'Impossible de changer l\'état envoyé');
+    }
 }
 
 // Changer le statut directement depuis la liste
@@ -436,94 +487,78 @@ function getQuotationStatusLabel(status) {
     }
 }
 
+// Tri dans l'en-tête
+(function wireQuotationSortHeader(){
+    try {
+        const map = [
+            ['number','Numéro'], ['client','Client'], ['date','Date'], ['total','Montant'], ['status','Statut'], ['sent','Envoyé']
+        ];
+        map.forEach(([key, label]) => {
+            const th = document.querySelector(`#quotationsTable thead th[data-col="${key}"]`);
+            if (!th) return;
+            th.innerHTML = buildSortHeader(label, key);
+        });
+        // utiliser les helpers de products.js: buildSortHeader/wireSortHeaderButtons si présents
+        document.querySelectorAll('#quotationsTable [data-sort-by]')?.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const by = btn.getAttribute('data-sort-by');
+                const dir = btn.getAttribute('data-sort-dir');
+                currentSort = { by, dir };
+                loadQuotations(1);
+            });
+        });
+    } catch (e) { /* ignore */ }
+})();
+
 // Filtrer les devis
 function filterQuotations() {
-    const statusFilter = document.getElementById('statusFilter').value;
-    const clientFilter = document.getElementById('clientFilter').value.toLowerCase().trim();
-    const dateFromFilter = document.getElementById('dateFromFilter').value;
-    const dateToFilter = document.getElementById('dateToFilter').value;
-
-    filteredQuotations = quotations.filter(quotation => {
-        // Filtre par statut
-        if (statusFilter && quotation.status !== statusFilter) {
-            return false;
-        }
-
-        // Filtre par client (chercher via tableau clients si nécessaire)
-        const clientObj = (clients || []).find(c => Number(c.client_id) === Number(quotation.client_id));
-        const clientName = (clientObj && clientObj.name) ? String(clientObj.name) : String(quotation.client_name || '');
-        if (clientFilter && !clientName.toLowerCase().includes(clientFilter)) {
-            return false;
-        }
-
-        // Filtre par date
-    const quotationDate = quotation.date ? new Date(quotation.date).toISOString().split('T')[0] : '';
-        if (dateFromFilter && quotationDate < dateFromFilter) {
-            return false;
-        }
-        if (dateToFilter && quotationDate > dateToFilter) {
-            return false;
-        }
-
-        return true;
-    });
-
-    currentPage = 1;
-    displayQuotations();
-    updatePagination();
-    updateStats();
+    // Au lieu de filtrer côté client, recharge directement depuis l'API paginée
+    loadQuotations(1);
 }
 
 // Pagination
-function updatePagination() {
-    const totalPages = Math.ceil(filteredQuotations.length / itemsPerPage);
+function renderQuotationsPagination(page, total) {
+    const totalPages = Math.max(1, Math.ceil(Number(total || 0) / itemsPerPage));
     const paginationContainer = document.getElementById('pagination-container');
-    
-    if (!paginationContainer || totalPages <= 1) {
-        if (paginationContainer) paginationContainer.innerHTML = '';
-        return;
-    }
+    if (!paginationContainer) return;
+    if (totalPages <= 1) { paginationContainer.innerHTML = ''; return; }
 
-    let paginationHTML = '<nav><ul class="pagination justify-content-center">';
-    
-    // Bouton précédent
-    paginationHTML += `
-        <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">Précédent</a>
+    let html = '<nav><ul class="pagination justify-content-center">';
+    const prev = Math.max(1, page - 1);
+    const next = Math.min(totalPages, page + 1);
+    html += `
+        <li class="page-item ${page === 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${prev}">Précédent</a>
         </li>
     `;
-    
-    // Numéros de page
-    for (let i = 1; i <= totalPages; i++) {
-        if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
-            paginationHTML += `
-                <li class="page-item ${i === currentPage ? 'active' : ''}">
-                    <a class="page-link" href="#" onclick="changePage(${i})">${i}</a>
-                </li>
-            `;
-        } else if (i === currentPage - 3 || i === currentPage + 3) {
-            paginationHTML += '<li class="page-item disabled"><span class="page-link">...</span></li>';
-        }
+    // Windowed numbers
+    const start = Math.max(1, page - 2);
+    const end = Math.min(totalPages, page + 2);
+    if (start > 1) {
+        html += `<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`;
+        if (start > 2) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
     }
-    
-    // Bouton suivant
-    paginationHTML += `
-        <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Suivant</a>
+    for (let i = start; i <= end; i++) {
+        html += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+    }
+    if (end < totalPages) {
+        if (end < totalPages - 1) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        html += `<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`;
+    }
+    html += `
+        <li class="page-item ${page === totalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" data-page="${next}">Suivant</a>
         </li>
     `;
-    
-    paginationHTML += '</ul></nav>';
-    paginationContainer.innerHTML = paginationHTML;
-}
-
-function changePage(page) {
-    const totalPages = Math.ceil(filteredQuotations.length / itemsPerPage);
-    if (page >= 1 && page <= totalPages) {
-        currentPage = page;
-        displayQuotations();
-        updatePagination();
-    }
+    html += '</ul></nav>';
+    paginationContainer.innerHTML = html;
+    paginationContainer.querySelectorAll('a[data-page]').forEach(a => {
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const p = Number(a.getAttribute('data-page'));
+            if (p && p !== page) loadQuotations(p);
+        });
+    });
 }
 
 // Ouvrir le modal pour nouveau devis

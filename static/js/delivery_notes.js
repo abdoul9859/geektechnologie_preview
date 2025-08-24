@@ -318,7 +318,7 @@ function updateDeliveryItemsTable() {
             </td>
             <td>
                 <input type="number" class="form-control" value="${item.unit_price}" 
-                       min="0" step="0.01" onchange="updateItemPrice(${index}, this.value)">
+                       min="0" step="1" inputmode="numeric" pattern="[0-9]*" onchange="updateItemPrice(${index}, this.value)">
             </td>
             <td>
                 <strong>${formatCurrency(item.total)}</strong>
@@ -357,7 +357,7 @@ function updateItemQuantity(index, quantity) {
 
 // Mettre à jour le prix d'un article
 function updateItemPrice(index, price) {
-    deliveryItems[index].unit_price = parseFloat(price) || 0;
+    deliveryItems[index].unit_price = Math.round(parseInt(price, 10) || 0);
     deliveryItems[index].total = deliveryItems[index].quantity * deliveryItems[index].unit_price;
     updateDeliveryItemsTable();
     updateTotals();

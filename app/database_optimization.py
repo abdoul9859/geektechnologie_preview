@@ -15,7 +15,7 @@ def get_optimized_engine():
     return create_engine(DATABASE_URL, **engine_kwargs)
 
 def create_performance_indexes(engine):
-    """Crée les index nécessaires pour optimiser les performances"""
+    """Crée les index nécessaires pour optimiser les performances (génériques)"""
     
     indexes_to_create = [
         # Index pour les factures (optimise les calculs dashboard)
@@ -36,9 +36,19 @@ def create_performance_indexes(engine):
         "CREATE INDEX IF NOT EXISTS idx_quotations_date ON quotations(date)",
         "CREATE INDEX IF NOT EXISTS idx_quotations_status ON quotations(status)",
         
-        # Index pour les produits (stock)
+        # Index pour les produits (filtres stock et catégorie)
         "CREATE INDEX IF NOT EXISTS idx_products_quantity ON products(quantity)",
         "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
+        "CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)",
+        "CREATE INDEX IF NOT EXISTS idx_products_model ON products(model)",
+        "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)",
+        
+        # Index pour les variantes (accélère résumés et recherches)
+        "CREATE INDEX IF NOT EXISTS idx_product_variants_product ON product_variants(product_id)",
+        "CREATE INDEX IF NOT EXISTS idx_product_variants_product_sold ON product_variants(product_id, is_sold)",
+        "CREATE INDEX IF NOT EXISTS idx_product_variants_condition ON product_variants(condition)",
+        "CREATE INDEX IF NOT EXISTS idx_product_variants_barcode ON product_variants(barcode)",
+        "CREATE INDEX IF NOT EXISTS idx_product_variants_imei ON product_variants(imei_serial)",
         
         # Index pour les mouvements de stock
         "CREATE INDEX IF NOT EXISTS idx_stock_movements_created_at ON stock_movements(created_at)",
@@ -58,6 +68,51 @@ def create_performance_indexes(engine):
             except Exception as e:
                 print(f"⚠️ Erreur lors de la création de l'index (peut-être déjà existant): {e}")
                 conn.rollback()
+
+
+def create_postgres_specific_indexes(engine):
+    """Crée les index spécifiques PostgreSQL (trigram et fonctionnels)."""
+    try:
+        with engine.connect() as conn:
+            version = conn.execute(text("SELECT version()"))
+            version_str = version.scalar() or ''
+            if 'PostgreSQL' not in version_str:
+                print("📊 Base de données non-PostgreSQL: index spécifiques ignorés")
+                return
+            print("🐘 PostgreSQL détecté: création d'index spécifiques (pg_trgm, fonctionnels)...")
+            # Activer l'extension trigram
+            try:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                conn.commit()
+            except Exception as e:
+                print(f"ℹ️ Extension pg_trgm: {e}")
+                conn.rollback()
+            
+            pg_indexes = [
+                # Trigram pour recherches ILIKE sur produits
+                "CREATE INDEX IF NOT EXISTS idx_products_name_trgm ON products USING gin (name gin_trgm_ops)",
+                "CREATE INDEX IF NOT EXISTS idx_products_brand_trgm ON products USING gin (brand gin_trgm_ops)",
+                "CREATE INDEX IF NOT EXISTS idx_products_model_trgm ON products USING gin (model gin_trgm_ops)",
+                "CREATE INDEX IF NOT EXISTS idx_products_barcode_trgm ON products USING gin (barcode gin_trgm_ops)",
+                
+                # Trigram pour variantes (scan et recherche)
+                "CREATE INDEX IF NOT EXISTS idx_product_variants_barcode_trgm ON product_variants USING gin (barcode gin_trgm_ops)",
+                "CREATE INDEX IF NOT EXISTS idx_product_variants_imei_trgm ON product_variants USING gin (imei_serial gin_trgm_ops)",
+                
+                # Index fonctionnel pour filtres/agrégations sur condition insensible à la casse/espaces
+                "CREATE INDEX IF NOT EXISTS idx_product_variants_condition_norm ON product_variants (lower(btrim(condition)))",
+            ]
+            for idx in pg_indexes:
+                try:
+                    print(f"Création index PostgreSQL: {idx}")
+                    conn.execute(text(idx))
+                    conn.commit()
+                    print("✅ Index PostgreSQL créé")
+                except Exception as e:
+                    print(f"⚠️ Erreur index PostgreSQL: {e}")
+                    conn.rollback()
+    except Exception as e:
+        print(f"❌ Erreur create_postgres_specific_indexes: {e}")
 
 def optimize_postgresql_settings(engine):
     """Applique des optimisations spécifiques à PostgreSQL"""
@@ -136,8 +191,12 @@ def optimize_database():
         # 2. Créer les index de performance
         print("\n🔍 Création des index de performance...")
         create_performance_indexes(engine)
+
+        # 3. Index spécifiques PostgreSQL (trigram + fonctionnels)
+        print("\n🧩 Index spécifiques PostgreSQL...")
+        create_postgres_specific_indexes(engine)
         
-        # 3. Optimisations spécifiques PostgreSQL
+        # 4. Optimisations spécifiques PostgreSQL
         print("\n🐘 Optimisations PostgreSQL...")
         optimize_postgresql_settings(engine)
         
