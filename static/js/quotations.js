@@ -43,8 +43,14 @@ async function preloadQuotationIntoForm(quotationId) {
     document.getElementById('quotationNumber').value = q.quotation_number;
     document.getElementById('quotationDate').value = (q.date || '').split('T')[0] || '';
     document.getElementById('validUntil').value = (q.expiry_date || '').split('T')[0] || '';
-    const clientSel = document.getElementById('clientSelect');
-    if (clientSel) clientSel.value = q.client_id;
+    // Renseigner le client (champ caché + champ recherche)
+    try {
+        const hidden = document.getElementById('clientSelect');
+        const input = document.getElementById('clientSearch');
+        if (hidden) hidden.value = q.client_id || '';
+        const cl = (clients || []).find(c => Number(c.client_id) === Number(q.client_id));
+        if (input) input.value = cl ? (cl.name || '') : (q.client_name || '');
+    } catch(e) {}
     document.getElementById('quotationNotes').value = q.notes || '';
     // TVA
     const taxInput = document.getElementById('taxRateInput');
@@ -131,6 +137,9 @@ function setupEventListeners() {
     document.getElementById('clientFilter')?.addEventListener('input', debounce(filterQuotations, 300));
     document.getElementById('dateFromFilter')?.addEventListener('change', filterQuotations);
     document.getElementById('dateToFilter')?.addEventListener('change', filterQuotations);
+
+    // Initialiser la recherche client
+    try { setupClientSearch(); } catch(e) {}
 
     // TVA controls
     const taxSwitch = document.getElementById('showTaxSwitch');
@@ -332,16 +341,106 @@ async function loadProducts() {
 
 // Remplir le select des clients
 function populateClientSelect() {
+    // Conservé pour compat, mais le champ clientSelect est désormais un input hidden
     const clientSelect = document.getElementById('clientSelect');
     if (!clientSelect) return;
+    // rien à faire ici pour l'UI recherche
+}
 
-    clientSelect.innerHTML = '<option value="">Sélectionner un client</option>';
-    clients.forEach(client => {
-        const option = document.createElement('option');
-        option.value = client.client_id;
-        option.textContent = client.name;
-        clientSelect.appendChild(option);
+// Recherche client avec autocomplétion (aligné sur factures)
+function setupClientSearch() {
+    const searchInput = document.getElementById('clientSearch');
+    const resultsBox = document.getElementById('clientSearchResults');
+    if (!searchInput || !resultsBox) return;
+
+    const closeResults = () => { resultsBox.style.display = 'none'; };
+
+    const renderList = (term) => {
+        const t = String(term || '').toLowerCase().trim();
+        const safe = v => String(v || '').toLowerCase();
+        const source = Array.isArray(clients) ? clients : [];
+        let list = [];
+        if (!t) {
+            // Afficher une liste initiale (tri par nom) si pas de terme
+            list = [...source].sort((a,b) => String(a.name||'').localeCompare(String(b.name||''))).slice(0, 8);
+        } else {
+            list = source.filter(c => safe(c.name).includes(t) || safe(c.phone).includes(t) || safe(c.email).includes(t)).slice(0, 8);
+        }
+        if (!list.length) {
+            resultsBox.innerHTML = '<div class="list-group-item text-muted small">Aucun client</div>';
+        } else {
+            resultsBox.innerHTML = list.map(c => `
+                <button type="button" class="list-group-item list-group-item-action" data-client-id="${c.client_id}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${escapeHtml(c.name || '')}</strong>
+                            ${c.email ? `<div class=\"text-muted small\">${escapeHtml(c.email)}</div>` : ''}
+                        </div>
+                        ${c.phone ? `<small class=\"text-muted\">${escapeHtml(c.phone)}</small>` : ''}
+                    </div>
+                </button>
+            `).join('');
+        }
+        resultsBox.style.display = 'block';
+    };
+
+    // Ouvrir la liste au focus (même sans terme)
+    searchInput.addEventListener('focus', () => {
+        renderList(searchInput.value);
     });
+
+    // Mettre à jour la liste au fil de la frappe (sans minimum de caractères)
+    searchInput.addEventListener('input', debounce(function(e){
+        const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
+        renderList(inputVal);
+    }, 200));
+
+    // Sélection par clic
+    resultsBox.addEventListener('click', function(e){
+        const btn = e.target.closest('[data-client-id]');
+        if (!btn) return;
+        const id = Number(btn.getAttribute('data-client-id'));
+        const c = (clients || []).find(x => Number(x.client_id) === id);
+        if (c) selectClient(c.client_id, c.name);
+    });
+
+    // Navigation clavier
+    searchInput.addEventListener('keydown', function(e){
+        const items = resultsBox.querySelectorAll('.list-group-item');
+        const active = resultsBox.querySelector('.list-group-item.active');
+        let idx = Array.from(items).indexOf(active);
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (idx < items.length - 1) { if (active) active.classList.remove('active'); items[idx+1]?.classList.add('active'); }
+            else if (idx === -1 && items.length) { items[0].classList.add('active'); }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (idx > 0) { if (active) active.classList.remove('active'); items[idx-1]?.classList.add('active'); }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (active) {
+                active.click();
+            } else if (items.length) {
+                items[0].click();
+            }
+        }
+    });
+
+    // Clic extérieur pour fermer
+    document.addEventListener('click', function(e){
+        if (!searchInput.contains(e.target) && !resultsBox.contains(e.target)) {
+            closeResults();
+        }
+    });
+}
+
+function selectClient(clientId, clientName) {
+    const hidden = document.getElementById('clientSelect');
+    const input = document.getElementById('clientSearch');
+    const resultsBox = document.getElementById('clientSearchResults');
+    if (hidden) hidden.value = String(clientId || '');
+    if (input) input.value = clientName || '';
+    if (resultsBox) resultsBox.style.display = 'none';
 }
 
 // Afficher les devis
@@ -566,6 +665,15 @@ function openQuotationModal() {
     document.getElementById('quotationModalTitle').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Nouveau Devis';
     document.getElementById('quotationForm').reset();
     document.getElementById('quotationId').value = '';
+    // Reset client search/hidden
+    try {
+        const hidden = document.getElementById('clientSelect');
+        const input = document.getElementById('clientSearch');
+        const box = document.getElementById('clientSearchResults');
+        if (hidden) hidden.value = '';
+        if (input) input.value = '';
+        if (box) box.style.display = 'none';
+    } catch(e) {}
     setDefaultDates();
     
     // Pré-remplir un numéro de devis fiable depuis le serveur
@@ -579,20 +687,14 @@ function openQuotationModal() {
                     input.value = data.quotation_number;
                     input.placeholder = '';
                 } else {
-                    const t = new Date();
-                    const y = t.getFullYear();
-                    const m = String(t.getMonth()+1).padStart(2,'0');
-                    const d = String(t.getDate()).padStart(2,'0');
-                    input.value = `DEV-${y}${m}${d}-0001`;
-                    input.placeholder = '';
+                    // Laisser vide: le backend générera automatiquement un numéro séquentiel
+                    input.value = '';
+                    input.placeholder = 'Sera généré automatiquement';
                 }
             }).catch(() => {
-                const t = new Date();
-                const y = t.getFullYear();
-                const m = String(t.getMonth()+1).padStart(2,'0');
-                const d = String(t.getDate()).padStart(2,'0');
-                input.value = `DEV-${y}${m}${d}-0001`;
-                input.placeholder = '';
+                // En cas d'échec API, laisser le serveur générer le numéro
+                input.value = '';
+                input.placeholder = 'Sera généré automatiquement';
             });
         }
     } catch(e) { /* ignore */ }

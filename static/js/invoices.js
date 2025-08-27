@@ -612,7 +612,7 @@ function populateClientSelect() {
     }
 }
 
-// Recherche client avec autocomplétion
+// Recherche client avec autocomplétion (améliorée: dropdown au focus + filtrage live)
 function setupClientSearch() {
     const searchInput = document.getElementById('clientSearch');
     const resultsBox = document.getElementById('clientSearchResults');
@@ -620,16 +620,21 @@ function setupClientSearch() {
 
     const closeResults = () => { resultsBox.style.display = 'none'; };
 
-    searchInput.addEventListener('input', debounce(function(e){
-        const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
-        const term = inputVal.toLowerCase().trim();
-        if (term.length < 2) { closeResults(); return; }
+    const renderList = (term) => {
+        const t = String(term || '').toLowerCase().trim();
         const safe = v => String(v || '').toLowerCase();
-        const list = (clients || []).filter(c => safe(c.name).includes(term) || safe(c.phone).includes(term) || safe(c.email).includes(term));
+        const source = Array.isArray(clients) ? clients : [];
+        let list = [];
+        if (!t) {
+            // Liste initiale triée par nom si pas de terme
+            list = [...source].sort((a,b) => String(a.name||'').localeCompare(String(b.name||''))).slice(0, 8);
+        } else {
+            list = source.filter(c => safe(c.name).includes(t) || safe(c.phone).includes(t) || safe(c.email).includes(t)).slice(0, 8);
+        }
         if (!list.length) {
             resultsBox.innerHTML = '<div class="list-group-item text-muted small">Aucun client</div>';
         } else {
-            resultsBox.innerHTML = list.slice(0, 8).map(c => `
+            resultsBox.innerHTML = list.map(c => `
                 <button type="button" class="list-group-item list-group-item-action" data-client-id="${c.client_id}">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
@@ -642,7 +647,18 @@ function setupClientSearch() {
             `).join('');
         }
         resultsBox.style.display = 'block';
-    }, 250));
+    };
+
+    // Ouvrir au focus (même sans recherche)
+    searchInput.addEventListener('focus', () => {
+        renderList(searchInput.value);
+    });
+
+    // Filtrage live au fil de la frappe
+    searchInput.addEventListener('input', debounce(function(e){
+        const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
+        renderList(inputVal);
+    }, 200));
 
     // Sélection par clic
     resultsBox.addEventListener('click', function(e){
@@ -667,7 +683,11 @@ function setupClientSearch() {
             if (idx > 0) { if (active) active.classList.remove('active'); items[idx-1]?.classList.add('active'); }
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            if (active) active.click();
+            if (active) {
+                active.click();
+            } else if (items.length) {
+                items[0].click();
+            }
         }
     });
 
@@ -981,21 +1001,14 @@ function openInvoiceModal() {
                         numberEl.value = data.invoice_number;
                         numberEl.placeholder = '';
                     } else {
-                        // Fallback lisible si API indisponible
-                        const today = new Date();
-                        const y = today.getFullYear();
-                        const m = String(today.getMonth()+1).padStart(2,'0');
-                        const d = String(today.getDate()).padStart(2,'0');
-                        numberEl.value = `FAC-${y}${m}${d}-0001`;
-                        numberEl.placeholder = '';
+                        // Si l'API ne renvoie rien, laisser vide: le serveur générera automatiquement
+                        numberEl.value = '';
+                        numberEl.placeholder = 'Sera généré automatiquement';
                     }
                 }).catch(() => {
-                    const today = new Date();
-                    const y = today.getFullYear();
-                    const m = String(today.getMonth()+1).padStart(2,'0');
-                    const d = String(today.getDate()).padStart(2,'0');
-                    numberEl.value = `FAC-${y}${m}${d}-0001`;
-                    numberEl.placeholder = '';
+                    // En cas d'erreur API, laisser vide pour laisser le backend générer
+                    numberEl.value = '';
+                    numberEl.placeholder = 'Sera généré automatiquement';
                 });
             } catch(e) { /* ignore */ }
         }

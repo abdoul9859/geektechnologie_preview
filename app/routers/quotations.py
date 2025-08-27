@@ -17,24 +17,41 @@ from datetime import datetime as _dt
 from sqlalchemy.orm import Session as _Session
 
 def _next_quotation_number(db: _Session, prefix: Optional[str] = None) -> str:
+    """Retourne le prochain numéro de devis séquentiel sous la forme PREFIX-#### (par défaut DEV-####)."""
+    import re
     pf = (prefix or 'DEV').strip('-')
-    today_prefix = _dt.now().strftime(f"{pf}-%Y%m%d-")
-    last = (
-        db.query(Quotation)
-        .filter(Quotation.quotation_number.ilike(f"{today_prefix}%"))
-        .order_by(Quotation.quotation_id.desc())
-        .first()
-    )
-    if last and isinstance(last.quotation_number, str) and last.quotation_number.startswith(today_prefix):
-        try:
-            last_seq = int(str(last.quotation_number).split('-')[-1])
-        except Exception:
-            last_seq = 0
-        next_seq = last_seq + 1
-    else:
-        next_seq = 1
+    base_prefix = f"{pf}-"
+
+    try:
+        rows = db.query(Quotation.quotation_number).filter(Quotation.quotation_number.ilike(f"{base_prefix}%")).all()
+    except Exception:
+        rows = []
+
+    last_seq = 0
+    # 1) format exact PREFIX-####
+    for (num,) in (rows or []):
+        if not isinstance(num, str):
+            continue
+        m = re.fullmatch(rf"{re.escape(pf)}-(\\d+)", num.strip())
+        if m:
+            val = int(m.group(1))
+            if val > last_seq:
+                last_seq = val
+
+    # 2) fallback sur le plus grand suffixe numérique si mix d'anciens formats
+    if last_seq == 0:
+        for (num,) in (rows or []):
+            if not isinstance(num, str):
+                continue
+            matches = re.findall(r'(\\d+)', num.strip())
+            if matches:
+                val = int(matches[-1])
+                if val > last_seq:
+                    last_seq = val
+
+    next_seq = last_seq + 1
     while True:
-        candidate = f"{today_prefix}{next_seq:04d}"
+        candidate = f"{base_prefix}{next_seq:04d}"
         exists = db.query(Quotation).filter(Quotation.quotation_number == candidate).first()
         if not exists:
             return candidate
@@ -271,7 +288,7 @@ async def create_quotation(
     current_user = Depends(get_current_user)
 ):
     """Créer un nouveau devis.
-    - Si le numéro est vide/auto ou déjà utilisé, génère automatiquement DEV-YYYYMMDD-####.
+    - Si le numéro est vide/auto ou déjà utilisé, génère automatiquement DEV-####.
     """
     try:
         _ensure_quotation_sent_column(db)

@@ -28,28 +28,49 @@ router = APIRouter(prefix="/api/invoices", tags=["invoices"])
 from datetime import datetime as _dt
 
 def _next_invoice_number(db: Session, prefix: Optional[str] = None) -> str:
-    """Génère le prochain numéro de facture unique du jour sous la forme PREFIX-YYYYMMDD-####.
-    Par défaut, PREFIX = 'FAC'.
+    """Génère le prochain numéro de facture séquentiel sous la forme PREFIX-####.
+    Par défaut, PREFIX = 'FAC'. L'algorithme recherche d'abord les numéros
+    existants au format exact PREFIX-<digits> et incrémente le plus grand.
+    S'il n'en trouve pas, il tente un fallback sur le plus grand suffixe
+    numérique présent et repart ensuite proprement.
     """
+    import re
     pf = (prefix or 'FAC').strip('-')
-    today_prefix = _dt.now().strftime(f"{pf}-%Y%m%d-")
-    last = (
-        db.query(Invoice)
-        .filter(Invoice.invoice_number.ilike(f"{today_prefix}%"))
-        .order_by(Invoice.invoice_id.desc())
-        .first()
-    )
-    if last and isinstance(last.invoice_number, str) and last.invoice_number.startswith(today_prefix):
-        try:
-            last_seq = int(str(last.invoice_number).split("-")[-1])
-        except Exception:
-            last_seq = 0
-        next_seq = last_seq + 1
-    else:
-        next_seq = 1
-    # Garantir l'unicité si des trous existent
+    base_prefix = f"{pf}-"
+
+    # Récupérer tous les numéros existants qui commencent par PREFIX-
+    try:
+        rows = db.query(Invoice.invoice_number).filter(Invoice.invoice_number.ilike(f"{base_prefix}%")).all()
+    except Exception:
+        rows = []
+
+    last_seq = 0
+    # 1) Chercher le max parmi les numéros au format exact PREFIX-####
+    for (num,) in (rows or []):
+        if not isinstance(num, str):
+            continue
+        m = re.fullmatch(rf"{re.escape(pf)}-(\\d+)", num.strip())
+        if m:
+            val = int(m.group(1))
+            if val > last_seq:
+                last_seq = val
+
+    # 2) Fallback: si aucun au format exact, prendre le plus grand suffixe numérique
+    if last_seq == 0:
+        for (num,) in (rows or []):
+            if not isinstance(num, str):
+                continue
+            matches = re.findall(r'(\\d+)', num.strip())
+            if matches:
+                val = int(matches[-1])  # dernier groupe de chiffres
+                if val > last_seq:
+                    last_seq = val
+
+    next_seq = last_seq + 1
+
+    # Garantir l'unicité (en cas de race, trous, etc.)
     while True:
-        candidate = f"{today_prefix}{next_seq:04d}"
+        candidate = f"{base_prefix}{next_seq:04d}"
         exists = db.query(Invoice).filter(Invoice.invoice_number == candidate).first()
         if not exists:
             return candidate
@@ -143,7 +164,7 @@ async def create_invoice(
     current_user = Depends(get_current_user)
 ):
     """Créer une nouvelle facture.
-    - Si le numéro est vide ou déjà utilisé, génère automatiquement le prochain numéro disponible (FAC-YYYYMMDD-####).
+    - Si le numéro est vide ou déjà utilisé, génère automatiquement le prochain numéro disponible (FAC-####).
     """
     try:
         # Vérifier que le client existe
@@ -245,7 +266,7 @@ async def create_invoice(
                     movement_type="OUT",
                     reference_type="INVOICE",
                     reference_id=db_invoice.invoice_id,
-                    notes=f"Vente - Facture {invoice_data.invoice_number}",
+                    notes=f"Vente - Facture {final_number}",
                     unit_price=float(item_data.price)
                 )
             except Exception:
@@ -561,7 +582,7 @@ async def get_next_invoice_number(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Retourne le prochain numéro de facture disponible (FAC-YYYYMMDD-####)."""
+    """Retourne le prochain numéro de facture disponible (FAC-####)."""
     try:
         return {"invoice_number": _next_invoice_number(db)}
     except Exception as e:

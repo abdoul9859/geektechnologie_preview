@@ -204,11 +204,14 @@
 
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="clientSelect" class="form-label">Client *</label>
-                                <select class="form-select" id="clientSelect" required>
-                                    <option value="">Sélectionner un client</option>
-                                </select>
+                            <div class="mb-3 position-relative">
+                                <label for="clientSearch" class="form-label">Client *</label>
+                                <input type="text" id="clientSearch" class="form-control" 
+                                       placeholder="Rechercher un client..." 
+                                       autocomplete="off" required>
+                                <input type="hidden" id="clientSelect" required>
+                                <div id="clientSearchResults" class="list-group position-absolute w-100" 
+                                     style="z-index: 1050; max-height: 200px; overflow-y: auto; display: none;"></div>
                             </div>
                         </div>
                         <div class="col-md-6">
