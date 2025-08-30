@@ -364,7 +364,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/supplier_invoices.js"></script>
+<script src="/static/js/supplier_invoices.js?v={{ ASSET_VERSION }}"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         initializeSupplierInvoices();

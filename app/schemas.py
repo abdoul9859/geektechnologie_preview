@@ -361,6 +361,7 @@ class InvoiceResponse(BaseModel):
     invoice_id: int
     invoice_number: str
     client_id: int
+    client_name: str  # Ajouter le nom du client
     quotation_id: Optional[int]
     date: datetime
     due_date: Optional[datetime]

@@ -529,6 +529,6 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/invoices.js"></script>
-<script src="/static/js/fix-invoices-errors.js"></script>
+<script src="/static/js/invoices.js?v={{ ASSET_VERSION }}"></script>
+<script src="/static/js/fix-invoices-errors.js?v={{ ASSET_VERSION }}"></script>
 {% endblock %}

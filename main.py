@@ -14,6 +14,14 @@ from datetime import date, datetime
 # Charger les variables d'environnement
 load_dotenv()
 
+# Version d'assets pour bust de cache (commit SHA si fourni par la plateforme, sinon variable ou timestamp)
+ASSET_VERSION = (
+    os.getenv("GIT_COMMIT_SHA")
+    or os.getenv("KOYEB_COMMIT_SHA")
+    or os.getenv("ASSET_VERSION")
+    or str(int(datetime.now().timestamp()))
+)[:12]
+
 # Imports de l'application
 from app.database import get_db
 from app.database import Invoice, UserSettings, Product, DeliveryNote, DeliveryNoteItem, Client
@@ -36,6 +44,22 @@ app = FastAPI(
 )
 
 # (Optionnel) Middleware proxy enlevé pour compatibilité starlette; la baseURL côté frontend force déjà HTTPS
+
+# Middleware de gestion du cache: HTML non cache, assets statiques fortement cacheés
+@app.middleware("http")
+async def cache_headers_middleware(request, call_next):
+    response = await call_next(request)
+    try:
+        path = request.url.path or ""
+        content_type = response.headers.get("content-type", "").lower()
+        if path.startswith("/static/") or path == "/favicon.ico":
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif content_type.startswith("text/html"):
+            response.headers["Cache-Control"] = "no-store"
+    except Exception:
+        # En cas de souci, on n'empêche pas la réponse de sortir
+        pass
+    return response
 
 # Initialiser la base de données au démarrage (désactivé par défaut en déploiement)
 @app.on_event("startup")
@@ -69,6 +93,8 @@ async def shutdown_event():
 
 # Configuration des templates et fichiers statiques
 templates = Jinja2Templates(directory="templates")
+# Exposer une variable globale de version pour le cache-busting des assets
+templates.env.globals["ASSET_VERSION"] = ASSET_VERSION
 
 # ---- Jinja filters ----
 def _format_number(value) -> str:

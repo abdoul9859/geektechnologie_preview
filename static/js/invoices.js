@@ -723,8 +723,8 @@ function displayInvoices() {
     const invoicesToShow = filteredInvoices.slice(startIndex, endIndex);
 
     tbody.innerHTML = invoicesToShow.map(invoice => {
-        const client = clients.find(c => c.client_id === invoice.client_id);
-        const clientName = client ? client.name : (invoice.client_name || '');
+        // Utiliser directement le nom du client retourné par l'API
+        const clientName = invoice.client_name || '';
         const invDate = invoice.date || invoice.invoice_date;
         const due = invoice.due_date || invoice.dueDate;
         const total = Number((invoice.total ?? invoice.total_amount) || 0);

@@ -88,7 +88,8 @@ async def list_invoices(
     current_user = Depends(get_current_user)
 ):
     """Lister les factures avec filtres"""
-    query = db.query(Invoice).order_by(desc(Invoice.created_at))
+    # Utiliser un JOIN avec la table des clients pour récupérer le nom du client
+    query = db.query(Invoice, Client.name.label('client_name')).join(Client, Invoice.client_id == Client.client_id).order_by(desc(Invoice.created_at))
     
     if status_filter:
         query = query.filter(Invoice.status == status_filter)
@@ -102,7 +103,35 @@ async def list_invoices(
     if end_date:
         query = query.filter(func.date(Invoice.date) <= end_date)
     
-    invoices = query.offset(skip).limit(limit).all()
+    results = query.offset(skip).limit(limit).all()
+    
+    # Construire la réponse avec le nom du client
+    invoices = []
+    for invoice, client_name in results:
+        invoice_dict = {
+            "invoice_id": invoice.invoice_id,
+            "invoice_number": invoice.invoice_number,
+            "client_id": invoice.client_id,
+            "client_name": client_name,  # Ajouter le nom du client
+            "quotation_id": invoice.quotation_id,
+            "date": invoice.date,
+            "due_date": invoice.due_date,
+            "status": invoice.status,
+            "payment_method": invoice.payment_method,
+            "subtotal": float(invoice.subtotal or 0),
+            "tax_rate": float(invoice.tax_rate or 0),
+            "tax_amount": float(invoice.tax_amount or 0),
+            "total": float(invoice.total or 0),
+            "paid_amount": float(invoice.paid_amount or 0),
+            "remaining_amount": float(invoice.remaining_amount or 0),
+            "notes": invoice.notes,
+            "show_tax": bool(invoice.show_tax),
+            "price_display": invoice.price_display or "FCFA",
+            "created_at": invoice.created_at,
+            "items": []
+        }
+        invoices.append(invoice_dict)
+    
     return invoices
 
 @router.get("/{invoice_id}")
