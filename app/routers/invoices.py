@@ -1152,7 +1152,7 @@ async def create_delivery_note_from_invoice(
             delivery_note_number=delivery_number,
             invoice_id=invoice.invoice_id,
             client_id=invoice.client_id,
-            date=invoice.date or _dt.now(),
+            date=_dt.now(),  # BL daté au jour de la génération
             delivery_date=_dt.now(),
             status="en_preparation",
             delivery_address=getattr(invoice.client, "address", None) if invoice.client else None,
@@ -1167,15 +1167,18 @@ async def create_delivery_note_from_invoice(
         db.add(dn)
         db.flush()  # obtenir l'ID
 
-        # Lignes du BL à partir des lignes facture (produits uniquement)
+        # Lignes du BL à partir des lignes facture (inclut aussi les lignes personnalisées)
         for it in (invoice.items or []):
-            if it.product_id is None:
-                # ignorer lignes personnalisées
-                continue
-            imeis = product_id_to_imeis.get(int(it.product_id), [])
+            pid = it.product_id  # peut être None pour une ligne personnalisée
+            imeis = []
+            try:
+                if pid is not None:
+                    imeis = product_id_to_imeis.get(int(pid), [])
+            except Exception:
+                imeis = []
             dn_item = DeliveryNoteItem(
                 delivery_note_id=dn.delivery_note_id,
-                product_id=it.product_id,
+                product_id=pid,
                 product_name=it.product_name,
                 quantity=it.quantity,
                 price=it.price,

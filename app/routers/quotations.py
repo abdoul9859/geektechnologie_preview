@@ -392,9 +392,18 @@ async def update_quotation(
         if not quotation:
             raise HTTPException(status_code=404, detail="Devis non trouvé")
 
-        # Unicité du numéro si modifié
-        if quotation.quotation_number != quotation_data.quotation_number:
-            existing = db.query(Quotation).filter(Quotation.quotation_number == quotation_data.quotation_number).first()
+        # Normaliser et vérifier le numéro de devis
+        current_num = str(quotation.quotation_number or "").strip()
+        requested_num = str(getattr(quotation_data, "quotation_number", "") or "").strip()
+        # Si vide ou 'AUTO', conserver le numéro existant
+        if not requested_num or requested_num.upper() in {"AUTO", "AUTOMATIC"}:
+            final_qnum = current_num
+        else:
+            final_qnum = requested_num
+
+        # Vérifier l'unicité seulement si réellement modifié après normalisation
+        if final_qnum != current_num:
+            existing = db.query(Quotation).filter(Quotation.quotation_number == final_qnum).first()
             if existing and int(existing.quotation_id) != int(quotation_id):
                 raise HTTPException(status_code=400, detail="Ce numéro de devis existe déjà")
 
@@ -404,7 +413,7 @@ async def update_quotation(
             raise HTTPException(status_code=404, detail="Client non trouvé")
 
         # Mettre à jour les champs principaux
-        quotation.quotation_number = quotation_data.quotation_number
+        quotation.quotation_number = final_qnum
         quotation.client_id = quotation_data.client_id
         quotation.date = quotation_data.date
         quotation.expiry_date = quotation_data.expiry_date

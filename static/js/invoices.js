@@ -1137,10 +1137,13 @@ async function preloadPrefilledInvoiceFromQuotation(prefill) {
         }
         if (input) input.value = c ? (c.name || '') : (prefill?.client_name || '');
     } catch(e) {}
-    // Date
+    // Date: par défaut, utiliser la date du jour lors d'une conversion devis -> facture
     try {
         const invDate = document.getElementById('invoiceDate');
-        if (invDate && prefill?.date) invDate.value = String(prefill.date).split('T')[0] || invDate.value;
+        if (invDate) {
+            const today = new Date().toISOString().split('T')[0];
+            invDate.value = today;
+        }
     } catch(e) {}
     // Articles
     invoiceItems = [];
