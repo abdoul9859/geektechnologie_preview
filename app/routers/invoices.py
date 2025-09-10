@@ -258,6 +258,18 @@ async def list_invoices_paginated(
 
     return result
 
+@router.get("/next-number")
+async def get_next_invoice_number(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Retourne le prochain numéro de facture disponible (FAC-####)."""
+    try:
+        return {"invoice_number": _next_invoice_number(db)}
+    except Exception as e:
+        logging.error(f"Erreur get_next_invoice_number: {e}")
+        raise HTTPException(status_code=500, detail="Erreur serveur")
+
 @router.get("/{invoice_id}")
 async def get_invoice(
     invoice_id: int,
@@ -738,7 +750,47 @@ async def update_invoice(
             recompute_invoices_stats(db)
         except Exception:
             pass
-        return invoice
+        # Façonner et retourner la réponse complète avec client_name (aligné sur create_invoice)
+        try:
+            client_name = db.query(Client.name).filter(Client.client_id == invoice.client_id).scalar() or ""
+        except Exception:
+            client_name = ""
+        try:
+            _ = invoice.items
+        except Exception:
+            pass
+        return {
+            "invoice_id": invoice.invoice_id,
+            "invoice_number": invoice.invoice_number,
+            "client_id": invoice.client_id,
+            "client_name": client_name,
+            "quotation_id": invoice.quotation_id,
+            "date": invoice.date,
+            "due_date": invoice.due_date,
+            "status": invoice.status,
+            "payment_method": invoice.payment_method,
+            "subtotal": float(invoice.subtotal or 0),
+            "tax_rate": float(invoice.tax_rate or 0),
+            "tax_amount": float(invoice.tax_amount or 0),
+            "total": float(invoice.total or 0),
+            "paid_amount": float(invoice.paid_amount or 0),
+            "remaining_amount": float(invoice.remaining_amount or 0),
+            "notes": invoice.notes,
+            "show_tax": bool(invoice.show_tax),
+            "price_display": invoice.price_display or "FCFA",
+            "created_at": invoice.created_at,
+            "items": [
+                {
+                    "item_id": it.item_id,
+                    "product_id": it.product_id,
+                    "product_name": it.product_name,
+                    "quantity": it.quantity,
+                    "price": float(it.price or 0),
+                    "total": float(it.total or 0),
+                }
+                for it in (invoice.items or [])
+            ],
+        }
 
     except HTTPException:
         raise
@@ -792,17 +844,6 @@ class PaymentCreate(BaseModel):
     reference: Optional[str] = None
     notes: Optional[str] = None
 
-@router.get("/next-number")
-async def get_next_invoice_number(
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """Retourne le prochain numéro de facture disponible (FAC-####)."""
-    try:
-        return {"invoice_number": _next_invoice_number(db)}
-    except Exception as e:
-        logging.error(f"Erreur get_next_invoice_number: {e}")
-        raise HTTPException(status_code=500, detail="Erreur serveur")
 
 @router.post("/{invoice_id}/payments")
 async def add_payment(
@@ -977,6 +1018,26 @@ async def delete_invoice(
             # ne pas bloquer la suppression de la facture si parsing échoue
             pass
         
+        # Supprimer d'éventuels bons de livraison liés à cette facture (et leurs items)
+        try:
+            linked_notes = db.query(DeliveryNote).filter(DeliveryNote.invoice_id == invoice_id).all()
+            for note in (linked_notes or []):
+                try:
+                    for it in list(note.items or []):
+                        try:
+                            db.delete(it)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    db.delete(note)
+                except Exception:
+                    pass
+        except Exception:
+            # Si la suppression échoue, l'exception globale sera gérée ci-dessous
+            pass
+        
         db.delete(invoice)
         db.commit()
         
@@ -987,7 +1048,7 @@ async def delete_invoice(
             recompute_invoices_stats(db)
         except Exception:
             pass
-
+        
         return {"message": "Facture supprimée avec succès"}
         
     except HTTPException:

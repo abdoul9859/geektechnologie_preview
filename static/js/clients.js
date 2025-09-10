@@ -148,7 +148,7 @@ function displayClients() {
                     </div>
                 </div>
             </td>
-            <td>${escapeHtml(client.contact_person || '-')}</td>
+            <td>${escapeHtml((client.contact || client.contact_person || '-') )}</td>
             <td>
                 ${client.email ? `<a href="mailto:${client.email}" class="text-decoration-none">${escapeHtml(client.email)}</a>` : '-'}
             </td>
@@ -299,15 +299,14 @@ async function editClient(clientId) {
         
         // Remplir le formulaire
         document.getElementById('clientId').value = client.client_id;
-        document.getElementById('clientName').value = client.name || '';
-        document.getElementById('clientContact').value = client.contact_person || '';
+        const elContact = document.getElementById('clientContact'); if (elContact) elContact.value = client.contact || client.contact_person || '';
         document.getElementById('clientEmail').value = client.email || '';
         document.getElementById('clientPhone').value = client.phone || '';
         document.getElementById('clientAddress').value = client.address || '';
-        document.getElementById('clientCity').value = client.city || '';
-        document.getElementById('clientPostalCode').value = client.postal_code || '';
+        const elCity = document.getElementById('clientCity'); if (elCity) elCity.value = client.city || '';
+        const elPostal = document.getElementById('clientPostalCode'); if (elPostal) elPostal.value = client.postal_code || '';
         document.getElementById('clientCountry').value = client.country || 'Sénégal';
-        document.getElementById('clientTaxNumber').value = client.tax_number || '';
+        const elTax = document.getElementById('clientTaxNumber'); if (elTax) elTax.value = client.tax_number || '';
         document.getElementById('clientNotes').value = client.notes || '';
         
         document.getElementById('clientModalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier Client';
@@ -328,14 +327,14 @@ async function saveClient() {
         const clientId = document.getElementById('clientId').value;
         const clientData = {
             name: document.getElementById('clientName').value.trim(),
-            contact_person: document.getElementById('clientContact').value.trim() || null,
+            contact: (document.getElementById('clientContact')?.value || '').trim() || null,
             email: document.getElementById('clientEmail').value.trim() || null,
             phone: document.getElementById('clientPhone').value.trim() || null,
             address: document.getElementById('clientAddress').value.trim() || null,
-            city: document.getElementById('clientCity').value.trim() || null,
-            postal_code: document.getElementById('clientPostalCode').value.trim() || null,
-            country: document.getElementById('clientCountry').value.trim() || null,
-            tax_number: document.getElementById('clientTaxNumber').value.trim() || null,
+            city: (document.getElementById('clientCity')?.value || '').trim() || null,
+            postal_code: (document.getElementById('clientPostalCode')?.value || '').trim() || null,
+            country: (document.getElementById('clientCountry')?.value || 'Sénégal').trim() || 'Sénégal',
+            tax_number: (document.getElementById('clientTaxNumber')?.value || '').trim() || null,
             notes: document.getElementById('clientNotes').value.trim() || null
         };
 
