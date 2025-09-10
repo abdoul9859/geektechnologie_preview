@@ -2060,25 +2060,26 @@ async function preloadInvoiceIntoForm(invoiceId) {
     
     // Reconstituer les items avec les IMEI groupés par produit
     const itemsGroupedByProduct = new Map();
+    const customItems = [];
     (inv.items || []).forEach(it => {
-        const key = String(it.product_id || '');
-        if (!key) {
+        const hasProduct = !!it.product_id;
+        if (!hasProduct) {
             // Item sans product_id (service personnalisé)
-            invoiceItems.push({
+            customItems.push({
                 id: Date.now() + Math.random(),
-                product_id: it.product_id,
+                product_id: null,
                 product_name: it.product_name,
-                is_custom: !it.product_id,
-                variant_id: it.variant_id || null,
-                variant_imei: it.variant_imei || null,
+                is_custom: true,
+                variant_id: null,
+                variant_imei: null,
                 scannedImeis: [],
-                quantity: it.quantity,
-                unit_price: Number(it.price),
-                total: Number(it.total)
+                quantity: Number(it.quantity || 1),
+                unit_price: Number(it.price || 0),
+                total: Number(it.total || 0)
             });
             return;
         }
-        
+        const key = String(it.product_id);
         if (!itemsGroupedByProduct.has(key)) {
             itemsGroupedByProduct.set(key, {
                 product_id: it.product_id,
@@ -2110,6 +2111,8 @@ async function preloadInvoiceIntoForm(invoiceId) {
             total: totalAmount
         });
     });
+    // Ajouter les lignes personnalisées à la fin (ou au début si vous préférez)
+    invoiceItems = [...invoiceItems, ...customItems];
     
     // Fallback: si pas de métadonnées IMEI, essayer de parser depuis les noms de produits
     if (serialsMap.size === 0) {
