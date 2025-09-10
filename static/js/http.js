@@ -7,6 +7,13 @@
   function buildURL(url, params) {
     const hasProto = /^https?:\/\//i.test(url);
     const u = new URL(hasProto ? url : (baseURL + url), baseURL);
+    // If the page is served over HTTPS, ensure same-host requests also use HTTPS
+    try {
+      const loc = window.location;
+      if (loc && loc.protocol === 'https:' && u.hostname === loc.hostname && u.protocol !== 'https:') {
+        u.protocol = 'https:';
+      }
+    } catch (e) { /* ignore */ }
     if (params && typeof params === 'object') {
       Object.entries(params).forEach(([k, v]) => {
         if (v === undefined || v === null) return;
