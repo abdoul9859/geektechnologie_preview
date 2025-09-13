@@ -1142,11 +1142,24 @@ function createVariantForm(variant = null, index) {
 
 function removeVariant(button) {
     const variantCard = button.closest('.variant-card');
-    variantCard.remove();
+    if (!variantCard) return;
     
-    // Vérifier s'il reste des variantes
+    // Marquer la variante comme supprimée plutôt que de la supprimer immédiatement
+    variantCard.style.display = 'none';
+    variantCard.setAttribute('data-removed', 'true');
+    
+    // Désactiver les champs pour qu'ils ne soient pas inclus dans la soumission
+    const inputs = variantCard.querySelectorAll('input, select, textarea');
+    inputs.forEach(input => {
+        input.disabled = true;
+        input.name = `removed_${input.name}`; // Renommer pour éviter la validation
+    });
+    
+    // Vérifier s'il reste des variantes visibles
     const variantsList = document.getElementById('variantsList');
-    if (variantsList.children.length === 0) {
+    const visibleVariants = variantsList.querySelectorAll('.variant-card:not([data-removed="true"])');
+    
+    if (visibleVariants.length === 0) {
         variantsList.innerHTML = '<p class="text-muted text-center">Aucune variante ajoutée</p>';
     }
 }
@@ -1195,7 +1208,7 @@ function removeAttribute(button) {
 
 function serializeVariants() {
     const variants = [];
-    const variantCards = document.querySelectorAll('.variant-card');
+    const variantCards = document.querySelectorAll('.variant-card:not([data-removed="true"])');
     
     variantCards.forEach(card => {
         const index = card.dataset.variantIndex;
