@@ -855,7 +855,18 @@ async def update_product(
                                     break
                         except Exception:
                             pass
-                # Ne pas supprimer les variantes existantes non mentionnées dans le payload pour éviter toute perte d'historique
+                # Supprimer les variantes qui ne sont plus dans le payload
+                existing_imeis = set(existing_by_imei.keys())
+                payload_imeis = set(payload_by_imei.keys())
+                imeis_to_remove = existing_imeis - payload_imeis
+                
+                for imei in imeis_to_remove:
+                    variant = existing_by_imei[imei]
+                    # Supprimer d'abord les attributs associés
+                    for attr in variant.attributes or []:
+                        db.delete(attr)
+                    # Puis supprimer la variante
+                    db.delete(variant)
 
             # S'assurer que le code-barres produit est None si variantes (uniquement si modification autorisée)
             if (not used_in_invoice) and will_have_variants:
