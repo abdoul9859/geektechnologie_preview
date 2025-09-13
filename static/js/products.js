@@ -1042,6 +1042,9 @@ function createVariantForm(variant = null, index) {
         condition: '',
         attributes: []
     };
+    const sold = !!variantData.is_sold;
+    const disabled = sold ? 'disabled' : '';
+    const soldBadge = sold ? '<span class="badge bg-danger ms-2">Vendu</span>' : '';
     
     let attributesHtml = '';
     if (variantData.attributes && variantData.attributes.length > 0) {
@@ -1052,18 +1055,19 @@ function createVariantForm(variant = null, index) {
                         <input type="text" class="form-control form-control-sm" 
                                name="variant_${index}_attr_name_${attrIndex}" 
                                placeholder="Nom attribut (ex: Couleur)" 
-                               value="${attr.attribute_name}">
+                               value="${attr.attribute_name}" ${disabled}>
                     </div>
                     <div class="col-md-6">
                         <div class="input-group">
                             <input type="text" class="form-control form-control-sm" 
                                    name="variant_${index}_attr_value_${attrIndex}" 
                                    placeholder="Valeur (ex: Noir)" 
-                                   value="${attr.attribute_value}">
+                                   value="${attr.attribute_value}" ${disabled}>
+                            ${sold ? '' : `
                             <button type="button" class="btn btn-outline-danger btn-sm" 
                                     onclick="removeAttribute(this)">
                                 <i class="bi bi-trash"></i>
-                            </button>
+                            </button>`}
                         </div>
                     </div>
                 </div>
@@ -1072,29 +1076,30 @@ function createVariantForm(variant = null, index) {
     }
     
     return `
-        <div class="card mb-3 variant-card" data-variant-index="${index}">
+        <div class="card mb-3 variant-card" data-variant-index="${index}" data-variant-sold="${sold ? '1' : '0'}">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Variante #${index + 1}</h6>
+                <h6 class="mb-0">Variante #${index + 1} ${soldBadge}</h6>
+                ${sold ? '' : `
                 <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVariant(this)">
                     <i class="bi bi-trash"></i>
-                </button>
+                </button>`}
             </div>
-            <div class="card-body">
+            <div class="card-body ${sold ? 'bg-light' : ''}">
                 <div class="row">
                     <div class="col-md-6">
                         <label class="form-label">IMEI/Numéro de série *</label>
                         <input type="text" class="form-control" 
                                name="variant_${index}_imei" 
                                value="${variantData.imei_serial}" 
-                               required>
+                               required ${disabled}>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Code-barres variante</label>
                         <div class="input-group">
                             <input type="text" class="form-control" 
                                    name="variant_${index}_barcode" 
-                                   value="${variantData.barcode || ''}">
-                            <button type="button" class="btn btn-outline-secondary" onclick="generateVariantBarcode(${index})" title="Générer un code-barres">
+                                   value="${variantData.barcode || ''}" ${disabled}>
+                            <button type="button" class="btn btn-outline-secondary" onclick="generateVariantBarcode(${index})" title="Générer un code-barres" ${disabled}>
                                 <i class="bi bi-upc-scan"></i>
                             </button>
                         </div>
@@ -1103,7 +1108,7 @@ function createVariantForm(variant = null, index) {
                 <div class="row mt-2">
                     <div class="col-md-6">
                         <label class="form-label">État de la variante</label>
-                        <select class="form-select" name="variant_${index}_condition" data-variant-condition="1">
+                        <select class="form-select" name="variant_${index}_condition" data-variant-condition="1" ${disabled}>
                             <option value="">(Hériter du produit)</option>
                             ${allowedConditions.map(c => `<option value="${c}" ${variantData.condition === c ? 'selected' : ''}>${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
                         </select>
@@ -1122,7 +1127,7 @@ function createVariantForm(variant = null, index) {
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label mb-0">Attributs spécifiques</label>
                         <button type="button" class="btn btn-sm btn-outline-secondary" 
-                                onclick="addAttribute(${index})">
+                                onclick="addAttribute(${index})" ${disabled}>
                             <i class="bi bi-plus me-1"></i>Ajouter attribut
                         </button>
                     </div>
@@ -1652,6 +1657,17 @@ function renderVariantCategoryAttributes(index) {
     }
     const fields = currentCategoryAttributes.map((a, i) => renderAttrInput(index, a, i)).join('');
     host.innerHTML = fields;
+    // Si la variante est vendue, désactiver tous les champs dans la carte
+    try {
+        const card = document.querySelector(`.variant-card[data-variant-index="${index}"]`);
+        const isSold = card && String(card.dataset.variantSold) === '1';
+        if (isSold) {
+            card.querySelectorAll('input, select, textarea, button').forEach(el => {
+                // Ne pas désactiver le bouton d'entête inexistant; ici on applique partout
+                el.disabled = true;
+            });
+        }
+    } catch (e) { /* noop */ }
     // Après rendu, tenter de pré-remplir à partir des "Attributs spécifiques"
     try { prefillVariantCategoryAttrValues(index); } catch(e) { console.warn('prefillVariantCategoryAttrValues error:', e); }
 }
