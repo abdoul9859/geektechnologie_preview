@@ -773,10 +773,33 @@ async def update_product(
             if exists_other_serials:
                 raise HTTPException(status_code=400, detail="Un ou plusieurs IMEI/numéros de série existent déjà")
             
-            # Index des variantes existantes par IMEI
+            # Index des variantes existantes par IMEI et par ID
             existing_by_imei: Dict[str, ProductVariant] = {
                 str(v.imei_serial).strip(): v for v in (product.variants or [])
             }
+            existing_by_id: Dict[int, ProductVariant] = {
+                v.variant_id: v for v in (product.variants or []) if v.variant_id
+            }
+            
+            # Traiter les variantes à supprimer
+            deleted_variant_ids = set(product_data.deleted_variants or [])
+            for variant_id in deleted_variant_ids:
+                if variant_id in existing_by_id:
+                    variant = existing_by_id[variant_id]
+                    # Supprimer d'abord les attributs associés
+                    for attr in variant.attributes or []:
+                        db.delete(attr)
+                    # Puis supprimer la variante
+                    db.delete(variant)
+                    db.flush()
+                    
+                    # Mettre à jour les index
+                    if variant.imei_serial and str(variant.imei_serial).strip() in existing_by_imei:
+                        del existing_by_imei[str(variant.imei_serial).strip()]
+                    if variant.variant_id in existing_by_id:
+                        del existing_by_id[variant.variant_id]
+            
+            # Indexer les nouvelles variantes par IMEI
             payload_by_imei: Dict[str, dict] = {str(nv['imei_serial']).strip(): nv for nv in norm_variants}
 
             # Si le produit est utilisé dans des factures: n'autoriser que l'AJOUT de nouvelles variantes,

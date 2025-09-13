@@ -1076,7 +1076,7 @@ function createVariantForm(variant = null, index) {
     }
     
     return `
-        <div class="card mb-3 variant-card" data-variant-index="${index}" data-variant-sold="${sold ? '1' : '0'}">
+        <div class="card mb-3 variant-card" data-variant-index="${index}" data-variant-id="${variantData.variant_id || ''}" data-variant-sold="${sold ? '1' : '0'}">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h6 class="mb-0">Variante #${index + 1} ${soldBadge}</h6>
                 ${sold ? '' : `
@@ -1144,15 +1144,24 @@ function removeVariant(button) {
     const variantCard = button.closest('.variant-card');
     if (!variantCard) return;
     
-    // Marquer la variante comme supprimée plutôt que de la supprimer immédiatement
+    // Récupérer l'index de la variante
+    const variantIndex = variantCard.dataset.variantIndex;
+    
+    // Créer un champ caché pour indiquer que cette variante doit être supprimée
+    const deleteInput = document.createElement('input');
+    deleteInput.type = 'hidden';
+    deleteInput.name = `delete_variant_${variantIndex}`;
+    deleteInput.value = 'true';
+    variantCard.appendChild(deleteInput);
+    
+    // Masquer la carte de variante
     variantCard.style.display = 'none';
     variantCard.setAttribute('data-removed', 'true');
     
     // Désactiver les champs pour qu'ils ne soient pas inclus dans la soumission
-    const inputs = variantCard.querySelectorAll('input, select, textarea');
+    const inputs = variantCard.querySelectorAll('input:not([type="hidden"]), select, textarea');
     inputs.forEach(input => {
         input.disabled = true;
-        input.name = `removed_${input.name}`; // Renommer pour éviter la validation
     });
     
     // Vérifier s'il reste des variantes visibles
@@ -1160,7 +1169,10 @@ function removeVariant(button) {
     const visibleVariants = variantsList.querySelectorAll('.variant-card:not([data-removed="true"])');
     
     if (visibleVariants.length === 0) {
-        variantsList.innerHTML = '<p class="text-muted text-center">Aucune variante ajoutée</p>';
+        const emptyMessage = document.createElement('p');
+        emptyMessage.className = 'text-muted text-center';
+        emptyMessage.textContent = 'Aucune variante ajoutée';
+        variantsList.appendChild(emptyMessage);
     }
 }
 
@@ -1208,15 +1220,23 @@ function removeAttribute(button) {
 
 function serializeVariants() {
     const variants = [];
-    const variantCards = document.querySelectorAll('.variant-card:not([data-removed="true"])');
+    const variantCards = document.querySelectorAll('.variant-card');
     
     variantCards.forEach(card => {
+        // Ignorer les variantes marquées comme supprimées
+        if (card.getAttribute('data-removed') === 'true') {
+            return; // Passer à la variante suivante
+        }
+        
         const index = card.dataset.variantIndex;
         const imeiInput = card.querySelector(`input[name="variant_${index}_imei"]`);
         const barcodeInput = card.querySelector(`input[name="variant_${index}_barcode"]`);
         const condSelect = card.querySelector(`select[name="variant_${index}_condition"]`);
         
-        if (imeiInput && imeiInput.value.trim()) {
+        // Vérifier si c'est une variante à supprimer
+        const isDeleted = card.querySelector(`input[name="delete_variant_${index}"]`)?.value === 'true';
+        
+        if (imeiInput && imeiInput.value.trim() && !isDeleted) {
             const variant = {
                 imei_serial: imeiInput.value.trim(),
                 barcode: barcodeInput ? barcodeInput.value.trim() : '',
@@ -1224,9 +1244,12 @@ function serializeVariants() {
                 attributes: []
             };
             
-            // Ne plus sérialiser les anciens champs d'attributs libres
-            // car ils sont maintenant gérés par le nouveau système d'attributs de catégorie
-
+            // Ajouter l'ID de la variante si elle existe (pour les mises à jour)
+            const variantId = card.dataset.variantId;
+            if (variantId) {
+                variant.id = parseInt(variantId);
+            }
+            
             // Sérialiser les attributs de catégorie
             const catAttrInputs = card.querySelectorAll('[data-variant-attr-input="1"]');
             const grouped = {};
@@ -1247,6 +1270,7 @@ function serializeVariants() {
                     if (val) grouped[attrName] = [val];
                 }
             });
+            
             Object.entries(grouped).forEach(([name, values]) => {
                 values.forEach(val => {
                     variant.attributes.push({ attribute_name: name, attribute_value: val });
@@ -1257,7 +1281,23 @@ function serializeVariants() {
         }
     });
     
-    return variants;
+    // Ajouter les variantes à supprimer
+    const deletedVariants = [];
+    document.querySelectorAll('input[name^="delete_variant_"]').forEach(input => {
+        if (input.value === 'true') {
+            const variantIndex = input.name.replace('delete_variant_', '');
+            // Trouver la carte de variante correspondante pour obtenir son ID
+            const card = document.querySelector(`.variant-card[data-variant-index="${variantIndex}"]`);
+            if (card && card.dataset.variantId) {
+                deletedVariants.push(parseInt(card.dataset.variantId));
+            }
+        }
+    });
+    
+    return {
+        variants: variants,
+        deleted_variants: deletedVariants
+    };
 }
 
 async function saveProduct() {
@@ -1282,7 +1322,10 @@ async function saveProduct() {
                 return;
             }
         }
-        const variants = requiresVariants ? serializeVariants() : [];
+        let variantsData = { variants: [], deleted_variants: [] };
+        if (requiresVariants) {
+            variantsData = serializeVariants();
+        }
         
         const productData = {
             name: document.getElementById('productName').value.trim(),
@@ -1296,7 +1339,8 @@ async function saveProduct() {
             description: document.getElementById('productDescription').value.trim(),
             notes: document.getElementById('productNotes').value.trim(),
             condition: requiresVariants ? undefined : (document.getElementById('productCondition').value || ''),
-            variants: variants
+            variants: variantsData.variants,
+            deleted_variants: variantsData.deleted_variants || []
         };
 
         // Si variantes requises, ne pas conserver visuellement une valeur de condition produit

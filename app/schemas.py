@@ -172,6 +172,7 @@ class ProductUpdate(BaseModel):
     entry_date: Optional[datetime] = None
     notes: Optional[str] = None
     variants: Optional[List[ProductVariantCreate]] = None
+    deleted_variants: Optional[List[int]] = None
 
 class ProductResponse(BaseModel):
     product_id: int
