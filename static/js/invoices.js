@@ -1,5 +1,7 @@
 // Gestion des factures
 let currentPage = 1;
+// Mémorisation du dernier fichier de signature
+let lastSignatureFile = null;
 const itemsPerPage = 20;
 let invoices = [];
 let filteredInvoices = [];
@@ -1040,9 +1042,76 @@ function openInvoiceModal() {
         // Recharger les méthodes de paiement lors de l'ouverture du modal
         populatePaymentMethodSelects(true);
 
-        // Setup signature pad
+        // Setup signature pad et gestion du fichier de signature
         try {
             const canvas = document.getElementById('signatureCanvas');
+            const fileInput = document.getElementById('signatureFile');
+            
+            // Restaurer le dernier fichier de signature s'il existe
+            if (lastSignatureFile && fileInput) {
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(lastSignatureFile);
+                fileInput.files = dataTransfer.files;
+                
+                // Afficher un aperçu du fichier sélectionné
+                const existingPreview = fileInput.parentNode.querySelector('.file-preview');
+                if (existingPreview) existingPreview.remove();
+                
+                const filePreview = document.createElement('div');
+                filePreview.className = 'mt-2 text-muted small file-preview';
+                filePreview.innerHTML = `Fichier sélectionné: ${lastSignatureFile.name} <button class="btn btn-sm btn-link p-0 ms-2" id="clearSignatureFile">Changer</button>`;
+                fileInput.parentNode.appendChild(filePreview);
+                
+                // Gérer le bouton de suppression
+                const clearBtn = document.getElementById('clearSignatureFile');
+                if (clearBtn) {
+                    clearBtn.onclick = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        fileInput.value = '';
+                        lastSignatureFile = null;
+                        filePreview.remove();
+                        return false;
+                    };
+                }
+            }
+            
+            // Gérer la sélection d'un nouveau fichier
+            const handleFileChange = (e) => {
+                // Supprimer uniquement l'aperçu existant s'il y en a un
+                const existingPreview = fileInput.parentNode.querySelector('.file-preview');
+                if (existingPreview) existingPreview.remove();
+                
+                if (e.target.files && e.target.files[0]) {
+                    lastSignatureFile = e.target.files[0];
+                    
+                    // Créer le nouvel élément d'aperçu
+                    const filePreview = document.createElement('div');
+                    filePreview.className = 'mt-2 text-muted small file-preview';
+                    filePreview.innerHTML = `Fichier sélectionné: ${lastSignatureFile.name} <button class="btn btn-sm btn-link p-0 ms-2" id="clearSignatureFile">Changer</button>`;
+                    
+                    // Ajouter l'aperçu après le champ de fichier
+                    fileInput.parentNode.appendChild(filePreview);
+                    
+                    // Gérer le bouton de suppression
+                    const clearBtn = document.getElementById('clearSignatureFile');
+                    if (clearBtn) {
+                        clearBtn.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            fileInput.value = '';
+                            lastSignatureFile = null;
+                            filePreview.remove();
+                            return false;
+                        };
+                    }
+                }
+            };
+            
+            // Réinitialiser l'écouteur d'événement
+            fileInput.removeEventListener('change', handleFileChange);
+            fileInput.addEventListener('change', handleFileChange);
+            
             if (canvas && canvas.getContext) {
                 const ctx = canvas.getContext('2d');
                 let drawing = false; let last = null;

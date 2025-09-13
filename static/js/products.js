@@ -1224,23 +1224,10 @@ function serializeVariants() {
                 attributes: []
             };
             
-            // Sérialiser les attributs libres (anciens champs)
-            const attributeNames = card.querySelectorAll(`input[name^="variant_${index}_attr_name_"]`);
-            const attributeValues = card.querySelectorAll(`input[name^="variant_${index}_attr_value_"]`);
-            
-            for (let i = 0; i < attributeNames.length; i++) {
-                const name = attributeNames[i].value.trim();
-                const value = attributeValues[i].value.trim();
-                
-                if (name && value) {
-                    variant.attributes.push({
-                        attribute_name: name,
-                        attribute_value: value
-                    });
-                }
-            }
+            // Ne plus sérialiser les anciens champs d'attributs libres
+            // car ils sont maintenant gérés par le nouveau système d'attributs de catégorie
 
-            // Sérialiser les attributs de catégorie (nouveau système)
+            // Sérialiser les attributs de catégorie
             const catAttrInputs = card.querySelectorAll('[data-variant-attr-input="1"]');
             const grouped = {};
             catAttrInputs.forEach(el => {
