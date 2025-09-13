@@ -689,7 +689,8 @@ async def update_product(
             incoming_barcode = bc or None
         
         # Règle: si le produit a/va avoir des variantes, interdire le code-barres produit
-        if will_have_variants and incoming_barcode:
+        # Exception: si le produit est déjà utilisé en facture, on autorise l'ajout de variantes sans toucher au code-barres produit
+        if (not used_in_invoice) and will_have_variants and incoming_barcode:
             raise HTTPException(
                 status_code=400,
                 detail="Un produit avec variantes ne peut pas avoir de code-barres"
@@ -698,19 +699,16 @@ async def update_product(
         # Préparer les données à mettre à jour (sans variants)
         update_data = product_data.dict(exclude_unset=True, exclude={'variants'})
         
-        # Si le produit est lié à une facture, interdire toute modification de ses champs
+        # Si le produit est lié à une facture, ignorer toute modification des champs du produit parent
         if used_in_invoice and update_data:
-            raise HTTPException(
-                status_code=400,
-                detail="Ce produit est déjà utilisé dans des factures: modification des attributs du produit interdite"
-            )
+            update_data = {}
         
         # Normaliser et valider la condition si fournie
         if 'condition' in update_data and update_data['condition'] is not None:
             if update_data['condition'].lower() not in allowed:
                 raise HTTPException(status_code=400, detail="Condition de produit invalide")
         
-        # Normaliser barcode côté update_data
+        # Normaliser barcode côté update_data (uniquement si modification autorisée)
         if 'barcode' in update_data:
             update_data['barcode'] = None if will_have_variants else incoming_barcode
         
@@ -725,7 +723,7 @@ async def update_product(
                 raise HTTPException(status_code=400, detail="Ce code-barres existe déjà")
         
         # Appliquer les mises à jour champ par champ (si autorisé)
-        for field, value in update_data.items():
+        for field, value in (update_data or {}).items():
             # Normaliser les chaînes vides en None pour éviter les contraintes d'unicité sur ''
             if isinstance(value, str):
                 value = value.strip()
@@ -859,8 +857,8 @@ async def update_product(
                             pass
                 # Ne pas supprimer les variantes existantes non mentionnées dans le payload pour éviter toute perte d'historique
 
-            # S'assurer que le code-barres produit est None si variantes
-            if will_have_variants:
+            # S'assurer que le code-barres produit est None si variantes (uniquement si modification autorisée)
+            if (not used_in_invoice) and will_have_variants:
                 product.barcode = None
 
         # Mettre à jour la quantité à partir des variantes non vendues si le produit a des variantes
