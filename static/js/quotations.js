@@ -81,6 +81,8 @@ let products = [];
 let quotationItems = [];
 let productVariantsByProductId = new Map(); // pour IMEI/variantes comme factures
 let productIdToStock = new Map();
+// Mémorisation du dernier fichier de signature
+let lastQuotationSignatureFile = null;
 
 // Fallback: define buildSortHeader locally if not provided by products.js
 if (typeof window.buildSortHeader !== 'function') {
@@ -762,10 +764,79 @@ function openQuotationModal() {
     updateQuotationItemsDisplay();
     calculateTotals();
 
-    // Setup signature pad comme facture
+    // Setup signature pad et gestion du fichier de signature
     try {
         const canvas = document.getElementById('signatureCanvas');
-        if (canvas) {
+        const fileInput = document.getElementById('signatureFile');
+        
+        // Restaurer le dernier fichier de signature s'il existe
+        if (lastQuotationSignatureFile && fileInput) {
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(lastQuotationSignatureFile);
+            fileInput.files = dataTransfer.files;
+            
+            // Afficher un aperçu du fichier sélectionné
+            const existingPreview = fileInput.parentNode.querySelector('.file-preview');
+            if (existingPreview) existingPreview.remove();
+            
+            const filePreview = document.createElement('div');
+            filePreview.className = 'mt-2 text-muted small file-preview';
+            filePreview.innerHTML = `Fichier sélectionné: ${lastQuotationSignatureFile.name} <button class="btn btn-sm btn-link p-0 ms-2" id="clearQuotationSignatureFile">Changer</button>`;
+            fileInput.parentNode.appendChild(filePreview);
+            
+            // Gérer le bouton de suppression
+            const clearBtn = document.getElementById('clearQuotationSignatureFile');
+            if (clearBtn) {
+                clearBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    fileInput.value = '';
+                    lastQuotationSignatureFile = null;
+                    filePreview.remove();
+                    return false;
+                };
+            }
+        }
+        
+        // Gérer la sélection d'un nouveau fichier
+        const handleFileChange = (e) => {
+            // Supprimer uniquement l'aperçu existant s'il y en a un
+            const existingPreview = fileInput.parentNode.querySelector('.file-preview');
+            if (existingPreview) existingPreview.remove();
+            
+            if (e.target.files && e.target.files[0]) {
+                lastQuotationSignatureFile = e.target.files[0];
+                
+                // Créer le nouvel élément d'aperçu
+                const filePreview = document.createElement('div');
+                filePreview.className = 'mt-2 text-muted small file-preview';
+                filePreview.innerHTML = `Fichier sélectionné: ${lastQuotationSignatureFile.name} <button class="btn btn-sm btn-link p-0 ms-2" id="clearQuotationSignatureFile">Changer</button>`;
+                
+                // Ajouter l'aperçu après le champ de fichier
+                fileInput.parentNode.appendChild(filePreview);
+                
+                // Gérer le bouton de suppression
+                const clearBtn = document.getElementById('clearQuotationSignatureFile');
+                if (clearBtn) {
+                    clearBtn.onclick = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        fileInput.value = '';
+                        lastQuotationSignatureFile = null;
+                        filePreview.remove();
+                        return false;
+                    };
+                }
+            }
+        };
+        
+        // Réinitialiser l'écouteur d'événement
+        if (fileInput) {
+            fileInput.removeEventListener('change', handleFileChange);
+            fileInput.addEventListener('change', handleFileChange);
+        }
+        
+        if (canvas && canvas.getContext) {
             const ctx = canvas.getContext('2d');
             let drawing = false; let last = null;
             const getPos = (e) => {
@@ -795,11 +866,17 @@ function openQuotationModal() {
             canvas.addEventListener('touchstart', start, { passive: false });
             canvas.addEventListener('touchmove', move, { passive: false });
             canvas.addEventListener('touchend', end);
-            document.getElementById('signatureClearBtn')?.addEventListener('click', () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            });
+            
+            const clearBtn = document.getElementById('signatureClearBtn');
+            if (clearBtn) {
+                clearBtn.addEventListener('click', () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                });
+            }
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+        console.warn('Erreur initialisation signature pad:', e);
+    }
 
     // Toujours afficher le modal (utile pour l'édition où on ouvre par JS)
     try {

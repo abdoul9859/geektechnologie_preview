@@ -592,14 +592,36 @@ async def print_delivery_note_page(request: Request, note_id: int, db: Session =
     if not note:
         dn = (
             db.query(DeliveryNote)
+            .options(joinedload(DeliveryNote.items), joinedload(DeliveryNote.client))
             .filter(DeliveryNote.delivery_note_id == note_id)
             .first()
         )
         if not dn:
             raise HTTPException(status_code=404, detail="Bon de livraison non trouvé")
-        # Charger relations
-        _ = dn.items
-        _ = dn.client
+        
+        # Traiter les items avec nettoyage des noms de produits
+        items = []
+        for it in (dn.items or []):
+            # Nettoyer le libellé: retirer un éventuel suffixe "(IMEI: xxx)"
+            clean_name = re.sub(r"\s*\(IMEI:\s*[^)]+\)\s*$", "", (it.product_name or ""), flags=re.I)
+            
+            # Parser les séries/IMEI
+            serials = []
+            try:
+                serial_str = it.serial_numbers or ""
+                if isinstance(serial_str, str) and serial_str.strip().startswith("["):
+                    serials = json.loads(serial_str)
+            except Exception:
+                serials = []
+            
+            items.append({
+                "product_id": it.product_id,
+                "product_name": clean_name,
+                "quantity": it.quantity,
+                "unit_price": float(it.price or 0),
+                "serials": serials
+            })
+
         note = {
             "id": dn.delivery_note_id,
             "number": dn.delivery_note_number,
@@ -611,20 +633,7 @@ async def print_delivery_note_page(request: Request, note_id: int, db: Session =
             "delivery_address": dn.delivery_address,
             "delivery_contact": dn.delivery_contact,
             "delivery_phone": dn.delivery_phone,
-            "items": (lambda _items: [
-                (lambda _clean_name, _serials: {
-                    "product_id": it.product_id,
-                    "product_name": _clean_name,
-                    "quantity": it.quantity,
-                    "unit_price": float(it.price or 0),
-                    "serials": _serials
-                })(
-                    # Nettoyer le libellé: retirer un éventuel suffixe "(IMEI: xxx)"
-                    (re.sub(r"\s*\(IMEI:\s*[^)]+\)\s*$", "", (it.product_name or ""), flags=re.I) if 're' in globals() else (it.product_name or "")),
-                    (lambda s: (json.loads(s) if (isinstance(s, str) and s.strip().startswith("[")) else ([])))(it.serial_numbers or "")
-                )
-                for it in _items
-            ])(dn.items or []),
+            "items": items,
             "subtotal": float(dn.subtotal or 0),
             "tax_rate": float(dn.tax_rate or 0),
             "tax_amount": float(dn.tax_amount or 0),
