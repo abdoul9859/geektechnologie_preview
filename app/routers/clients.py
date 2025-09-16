@@ -24,7 +24,9 @@ async def list_clients(
         query = query.filter(
             Client.name.ilike(f"%{search}%") |
             Client.email.ilike(f"%{search}%") |
-            Client.phone.ilike(f"%{search}%")
+            Client.phone.ilike(f"%{search}%") |
+            Client.contact.ilike(f"%{search}%") |
+            Client.city.ilike(f"%{search}%")
         )
     
     clients = query.offset(skip).limit(limit).all()
