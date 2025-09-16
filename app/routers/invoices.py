@@ -1208,7 +1208,21 @@ async def create_delivery_note_from_invoice(
         except Exception:
             product_id_to_imeis = {}
 
+        # Extraire la signature de la facture si présente
+        signature_data_url = None
+        try:
+            if invoice.notes:
+                m2 = re.search(r"__SIGNATURE__=(.*)$", invoice.notes, flags=re.S)
+                if m2:
+                    signature_data_url = (m2.group(1) or '').strip()
+        except Exception:
+            pass
+
         # Créer le BL
+        notes = f"Créé depuis facture {invoice.invoice_number}"
+        if signature_data_url:
+            notes += f"\n\n__SIGNATURE__={signature_data_url}"
+        
         dn = DeliveryNote(
             delivery_note_number=delivery_number,
             invoice_id=invoice.invoice_id,
@@ -1223,7 +1237,7 @@ async def create_delivery_note_from_invoice(
             tax_rate=invoice.tax_rate,
             tax_amount=invoice.tax_amount,
             total=invoice.total,
-            notes=f"Créé depuis facture {invoice.invoice_number}"
+            notes=notes
         )
         db.add(dn)
         db.flush()  # obtenir l'ID

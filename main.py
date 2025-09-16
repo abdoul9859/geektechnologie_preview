@@ -653,11 +653,22 @@ async def print_delivery_note_page(request: Request, note_id: int, db: Session =
     except Exception:
         product_descriptions = {}
 
+    # Extraire la signature depuis les notes du bon de livraison si présente
+    signature_data_url = None
+    try:
+        if note and note.get("notes"):
+            m2 = re.search(r"__SIGNATURE__=(.*)$", note["notes"], flags=re.S)
+            if m2:
+                signature_data_url = (m2.group(1) or '').strip()
+    except Exception:
+        pass
+
     company_settings = _load_company_settings(db)
     context = {
         "request": request,
         "note": note,
         "product_descriptions": product_descriptions,
+        "signature_data_url": signature_data_url,
         "settings": {
             "company_name": company_settings.get("name"),
             "address": company_settings.get("address"),

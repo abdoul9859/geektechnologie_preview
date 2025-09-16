@@ -144,6 +144,17 @@
                     {% if note and note['delivery_phone'] %}{% if note['delivery_address'] or note['delivery_contact'] %} · {% endif %}Tél: {{ note['delivery_phone'] }}{% endif %}
                 </div>
             </div>
+
+            <!-- Signature juste après les notes de livraison -->
+            {% if signature_data_url %}
+            <div style="margin: 14px 24px 0; display:flex; justify-content:flex-end;">
+                <div style="min-width:320px; max-width:360px; text-align:center;">
+                    <div style="font-size:11px; color:#6b7280; text-transform:uppercase; letter-spacing:.6px; margin-bottom:8px;">Signature</div>
+                    <img src="{{ signature_data_url }}" alt="Signature" style="max-width: 350px; max-height: 150px; display:block; margin: 0 auto 6px;" />
+                    <div style="border-top:1px solid #d1d5db; width: 360px; margin: 6px auto 0; height: 0;"></div>
+                </div>
+            </div>
+            {% endif %}
             <div class="footer" style="position:relative;">
                 <div class="footer-content">
                     <div class="footer-section">
