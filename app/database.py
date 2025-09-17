@@ -499,6 +499,7 @@ class DeliveryNote(Base):
     notes = Column(Text)
     delivered_by = Column(String(100))
     signature_received = Column(Boolean, default=False)
+    signature_data_url = Column(Text)  # URL de la signature (data URL ou chemin)
     created_at = Column(DateTime, default=func.now())
     delivered_at = Column(DateTime)
     

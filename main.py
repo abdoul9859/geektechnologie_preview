@@ -639,6 +639,7 @@ async def print_delivery_note_page(request: Request, note_id: int, db: Session =
             "tax_amount": float(dn.tax_amount or 0),
             "total": float(dn.total or 0),
             "notes": dn.notes,
+            "signature_data_url": dn.signature_data_url,
             "created_at": dn.created_at,
         }
 
@@ -653,17 +654,11 @@ async def print_delivery_note_page(request: Request, note_id: int, db: Session =
     except Exception:
         product_descriptions = {}
 
-    # Extraire la signature depuis les notes du bon de livraison si présente
-    signature_data_url = None
-    try:
-        if note and note.get("notes"):
-            m2 = re.search(r"__SIGNATURE__=(.*)$", note["notes"], flags=re.S)
-            if m2:
-                signature_data_url = (m2.group(1) or '').strip()
-    except Exception:
-        pass
 
     company_settings = _load_company_settings(db)
+    # Extraire la signature depuis le bon de livraison
+    signature_data_url = note.get("signature_data_url") if note else None
+    
     context = {
         "request": request,
         "note": note,

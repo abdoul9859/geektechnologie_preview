@@ -40,7 +40,8 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
-    command: ["python", "-u", "start.py"]
+    # Le script d'entrée gère automatiquement les migrations
+    # command: ["python", "-u", "start.py"]
 
 volumes:
   db_data:

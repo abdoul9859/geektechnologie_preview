@@ -23,11 +23,42 @@ from ..routers.stock_movements import create_stock_movement
 from ..services.stats_manager import recompute_invoices_stats
 import logging
 import os
+import re
+import json
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"]) 
 
 # Helpers de numérotation
 from datetime import datetime as _dt
+
+def extract_signature_from_notes(notes: str) -> str:
+    """
+    Extrait la signature depuis les notes d'une facture.
+    Cherche le pattern __SIGNATURE__=<data_url> dans les notes.
+    
+    Args:
+        notes: Le texte des notes de la facture
+        
+    Returns:
+        str: L'URL de la signature ou None si non trouvée
+    """
+    if not notes:
+        return None
+        
+    try:
+        # Chercher le pattern __SIGNATURE__=<data_url>
+        pattern = r"__SIGNATURE__=(.*?)(?:\n|$)"
+        match = re.search(pattern, notes, re.MULTILINE | re.DOTALL)
+        
+        if match:
+            signature_url = match.group(1).strip()
+            # Vérifier que c'est bien une data URL ou une URL valide
+            if signature_url and (signature_url.startswith('data:') or signature_url.startswith('http')):
+                return signature_url
+    except Exception as e:
+        logging.warning(f"Erreur lors de l'extraction de la signature: {e}")
+    
+    return None
 
 def _next_invoice_number(db: Session, prefix: Optional[str] = None) -> str:
     """Génère le prochain numéro de facture séquentiel sous la forme PREFIX-####.
@@ -1209,19 +1240,10 @@ async def create_delivery_note_from_invoice(
             product_id_to_imeis = {}
 
         # Extraire la signature de la facture si présente
-        signature_data_url = None
-        try:
-            if invoice.notes:
-                m2 = re.search(r"__SIGNATURE__=(.*)$", invoice.notes, flags=re.S)
-                if m2:
-                    signature_data_url = (m2.group(1) or '').strip()
-        except Exception:
-            pass
-
+        signature_data_url = extract_signature_from_notes(invoice.notes or "")
+        
         # Créer le BL
         notes = f"Créé depuis facture {invoice.invoice_number}"
-        if signature_data_url:
-            notes += f"\n\n__SIGNATURE__={signature_data_url}"
         
         dn = DeliveryNote(
             delivery_note_number=delivery_number,
@@ -1237,7 +1259,8 @@ async def create_delivery_note_from_invoice(
             tax_rate=invoice.tax_rate,
             tax_amount=invoice.tax_amount,
             total=invoice.total,
-            notes=notes
+            notes=notes,
+            signature_data_url=signature_data_url
         )
         db.add(dn)
         db.flush()  # obtenir l'ID
