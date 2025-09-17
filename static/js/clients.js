@@ -184,9 +184,9 @@ function filterClients() {
     const createdTo = document.getElementById('createdTo')?.value || '';
 
     filteredClients = (clients || []).filter(client => {
-        // Recherche globale
+        // Recherche globale - alignée avec l'API
         if (searchTerm) {
-            const hay = [client.name, client.email, client.phone, client.contact_person, client.city]
+            const hay = [client.name, client.email, client.phone, client.contact, client.city, client.address, client.country]
                 .map(v => String(v || '').toLowerCase());
             if (!hay.some(h => h.includes(searchTerm))) return false;
         }

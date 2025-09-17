@@ -665,8 +665,8 @@ function setupClientSearch() {
     const renderList = async (term) => {
         const t = String(term || '').trim();
         try {
-            // server-side search, limited
-            const { data } = await axios.get('/api/clients/', { params: { search: t || undefined, limit: 8 } });
+            // server-side search, limité à 20 résultats pour plus de cohérence
+            const { data } = await axios.get('/api/clients/', { params: { search: t || undefined, limit: 20 } });
             const list = Array.isArray(data) ? data : (data.items || []);
             _latestClientResults = list || [];
             if (!list.length) {

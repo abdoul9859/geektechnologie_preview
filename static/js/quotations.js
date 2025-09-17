@@ -414,7 +414,7 @@ function setupClientSearch() {
         const t = String(term || '').toLowerCase().trim();
         const safe = v => String(v || '').toLowerCase();
         // Rechercher côté serveur pour garantir la mise à jour en temps réel
-        axios.get('/api/clients/', { params: { search: t || undefined, limit: 8 } })
+        axios.get('/api/clients/', { params: { search: t || undefined, limit: 20 } })
             .then(({ data }) => {
                 const list = Array.isArray(data) ? data : (data.items || []);
                 _latestClientResults = list || [];

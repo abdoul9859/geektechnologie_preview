@@ -21,13 +21,19 @@ async def list_clients(
     query = db.query(Client)
     
     if search:
+        search_term = f"%{search}%"
         query = query.filter(
-            Client.name.ilike(f"%{search}%") |
-            Client.email.ilike(f"%{search}%") |
-            Client.phone.ilike(f"%{search}%") |
-            Client.contact.ilike(f"%{search}%") |
-            Client.city.ilike(f"%{search}%")
+            Client.name.ilike(search_term) |
+            Client.email.ilike(search_term) |
+            Client.phone.ilike(search_term) |
+            Client.contact.ilike(search_term) |
+            Client.city.ilike(search_term) |
+            Client.address.ilike(search_term) |
+            Client.country.ilike(search_term)
         )
+    
+    # Trier par nom pour une cohérence dans les résultats
+    query = query.order_by(Client.name.asc())
     
     clients = query.offset(skip).limit(limit).all()
     return clients
