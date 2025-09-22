@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}GEEK TECHNOLOGIE{% endblock %}</title>
+    <title>{% block title %}{{ global_settings.name or 'GEEK TECHNOLOGIE' }}{% endblock %}</title>
     {% set _favicon = (global_settings.logo or global_settings.logo_path) if global_settings is defined else None %}
     {% if _favicon %}
     <link rel="icon" href="{{ _favicon }}">
@@ -71,7 +71,7 @@
                 {% else %}
                     <i class="bi bi-gear-fill"></i>
                 {% endif %}
-                <span>GEEK TECHNOLOGIE</span>
+                <span>{{ global_settings.name or 'GEEK TECHNOLOGIE' }}</span>
             </a>
             
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
