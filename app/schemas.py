@@ -315,6 +315,7 @@ class QuotationResponse(BaseModel):
     quotation_id: int
     quotation_number: str
     client_id: int
+    client_name: Optional[str] = None
     date: datetime
     expiry_date: Optional[datetime]
     status: str

@@ -290,11 +290,18 @@ async def get_quotation(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Obtenir un devis par ID"""
+    """Obtenir un devis par ID avec client"""
+    from sqlalchemy.orm import joinedload
     _ensure_quotation_sent_column(db)
-    quotation = db.query(Quotation).filter(Quotation.quotation_id == quotation_id).first()
+    quotation = db.query(Quotation).options(
+        joinedload(Quotation.client)
+    ).filter(Quotation.quotation_id == quotation_id).first()
     if not quotation:
         raise HTTPException(status_code=404, detail="Devis non trouvé")
+    
+    # Forcer chargement de la relation client
+    _ = quotation.client
+    
     # Attacher l'ID de facture liée si présent
     try:
         inv = db.query(Invoice).filter(Invoice.quotation_id == quotation.quotation_id).first()
@@ -302,7 +309,27 @@ async def get_quotation(
             setattr(quotation, "invoice_id", inv.invoice_id)
     except Exception:
         pass
-    return quotation
+    
+    # Créer une réponse personnalisée avec le nom du client
+    quotation_dict = {
+        "quotation_id": quotation.quotation_id,
+        "quotation_number": quotation.quotation_number,
+        "client_id": quotation.client_id,
+        "client_name": quotation.client.name if quotation.client else None,
+        "date": quotation.date,
+        "expiry_date": quotation.expiry_date,
+        "status": quotation.status,
+        "is_sent": quotation.is_sent,
+        "subtotal": quotation.subtotal,
+        "tax_rate": quotation.tax_rate,
+        "tax_amount": quotation.tax_amount,
+        "total": quotation.total,
+        "notes": quotation.notes,
+        "created_at": quotation.created_at,
+        "invoice_id": getattr(quotation, "invoice_id", None),
+        "items": quotation.items or []
+    }
+    return quotation_dict
 
 @router.post("/", response_model=QuotationResponse)
 async def create_quotation(

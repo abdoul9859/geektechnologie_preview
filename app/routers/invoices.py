@@ -307,19 +307,26 @@ async def get_invoice(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Obtenir une facture par ID avec items et paiements"""
-    invoice = db.query(Invoice).filter(Invoice.invoice_id == invoice_id).first()
+    """Obtenir une facture par ID avec items, paiements et client"""
+    from sqlalchemy.orm import joinedload
+    invoice = db.query(Invoice).options(
+        joinedload(Invoice.items), 
+        joinedload(Invoice.payments),
+        joinedload(Invoice.client)
+    ).filter(Invoice.invoice_id == invoice_id).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Facture non trouvée")
 
     # Forcer chargement relations
     _ = invoice.items
     _ = invoice.payments
+    _ = invoice.client
 
     return {
         "invoice_id": invoice.invoice_id,
         "invoice_number": invoice.invoice_number,
         "client_id": invoice.client_id,
+        "client_name": invoice.client.name if invoice.client else None,
         "date": invoice.date,
         "due_date": invoice.due_date,
         "status": invoice.status,

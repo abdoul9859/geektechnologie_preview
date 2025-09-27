@@ -80,7 +80,7 @@ async function loadDebts() {
     try {
         showLoading();
         const response = await safeLoadData(
-            () => axios.get('/api/debts'),
+            () => axios.get('/api/debts/'),
             {
                 timeout: 8000,
                 fallbackData: [],
@@ -122,7 +122,7 @@ async function loadDebts() {
 async function loadClients() {
     try {
         const response = await safeLoadData(
-            () => axios.get('/api/clients'),
+            () => axios.get('/api/clients/'),
             { timeout: 8000, fallbackData: [], errorMessage: 'Erreur lors du chargement des clients' }
         );
         const data = response?.data ?? [];
@@ -421,7 +421,7 @@ async function saveDebt() {
         if (currentDebtId) {
             await axios.put(`/api/debts/${currentDebtId}`, debtData);
         } else {
-            await axios.post('/api/debts', debtData);
+            await axios.post('/api/debts/', debtData);
         }
         showSuccess(currentDebtId ? 'Dette fournisseur modifiée' : 'Dette fournisseur créée');
         const modal = bootstrap.Modal.getInstance(document.getElementById('debtModal'));

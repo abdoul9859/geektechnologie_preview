@@ -80,7 +80,7 @@ function setupFormValidation() {
 // Charger les fournisseurs
 async function loadSuppliers() {
     try {
-        const response = await axios.get('/api/suppliers');
+        const response = await axios.get('/api/suppliers/');
         suppliers = response.data.suppliers || response.data;
         
         // Remplir uniquement le filtre (pas le select car on utilise maintenant la recherche)
@@ -225,7 +225,7 @@ async function createQuickSupplier() {
     };
     
     try {
-        const response = await axios.post('/api/suppliers', supplierData);
+        const response = await axios.post('/api/suppliers/', supplierData);
         const newSupplier = response.data;
         
         // Ajouter le nouveau fournisseur à la liste
@@ -256,7 +256,7 @@ async function createQuickSupplier() {
 // Charger les produits
 async function loadProducts() {
     try {
-        const response = await axios.get('/api/products');
+        const response = await axios.get('/api/products/');
         products = response.data.products || response.data;
     } catch (error) {
         console.error('Erreur lors du chargement des produits:', error);
@@ -505,7 +505,7 @@ async function handleInvoiceFormSubmit(e) {
             await axios.put(`/api/supplier-invoices/${currentInvoiceId}`, formData);
             showSuccess('Facture mise à jour avec succès');
         } else {
-            await axios.post('/api/supplier-invoices', formData);
+            await axios.post('/api/supplier-invoices/', formData);
             showSuccess('Facture créée avec succès');
         }
         

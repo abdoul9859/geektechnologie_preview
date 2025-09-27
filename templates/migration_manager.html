@@ -370,5 +370,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-    <script src="{{ url_for('static', path='js/migration_manager.js') }}?v={{ range(1000, 9999) | random }}"></script>
+    <script src="/static/js/migration_manager.js?v={{ range(1000, 9999) | random }}"></script>
 {% endblock %}

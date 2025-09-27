@@ -30,7 +30,7 @@ async function loadMigrations() {
     try {
         showLoading();
         console.log('🔄 Chargement des migrations depuis /api/migrations...');
-        const { data } = await axios.get('/api/migrations');
+        const { data } = await axios.get('/api/migrations/');
         console.log('✅ Données reçues:', data);
         migrations = Array.isArray(data) ? data : (data?.items || []);
         filteredMigrations = [...migrations];
@@ -386,7 +386,7 @@ async function startMigration() {
             status: 'pending',
             description: document.getElementById('migrationDescription').value || undefined
         };
-        const { data: created } = await axios.post('/api/migrations', payload);
+        const { data: created } = await axios.post('/api/migrations/', payload);
 
         // 2) Uploader le fichier
         const formData = new FormData();

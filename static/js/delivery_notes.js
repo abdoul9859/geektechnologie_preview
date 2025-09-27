@@ -45,7 +45,7 @@ function setupEventListeners() {
 async function loadDeliveryNotes() {
     try {
         showLoading();
-        const { data } = await axios.get('/api/delivery-notes');
+        const { data } = await axios.get('/api/delivery-notes/');
         deliveryNotes = Array.isArray(data) ? data : (data.delivery_notes || []);
         displayDeliveryNotes();
         updateStatistics();
@@ -60,7 +60,7 @@ async function loadDeliveryNotes() {
 // Charger les clients
 async function loadClients() {
     try {
-        const { data } = await axios.get('/api/clients');
+        const { data } = await axios.get('/api/clients/');
         clients = Array.isArray(data) ? data : (data.items || data.clients || []);
         populateClientSelects();
     } catch (error) {
@@ -71,7 +71,7 @@ async function loadClients() {
 // Charger les produits
 async function loadProducts() {
     try {
-        const { data } = await axios.get('/api/products');
+        const { data } = await axios.get('/api/products/');
         products = Array.isArray(data) ? data : (data.items || data.products || []);
     } catch (error) {
         console.error('Erreur lors du chargement des produits:', error);
@@ -422,7 +422,7 @@ async function saveDeliveryNote() {
                 body: JSON.stringify(deliveryNoteData)
             });
         } else {
-            response = await fetch('/api/delivery-notes', {
+            response = await fetch('/api/delivery-notes/', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

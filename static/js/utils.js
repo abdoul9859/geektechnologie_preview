@@ -2,7 +2,13 @@
 // Définir l'origine API pour éviter les mixed-contents entre HTTP/HTTPS
 try {
     if (typeof window !== 'undefined') {
-        window.API_ORIGIN = window.location.origin;
+        const loc = window.location;
+        // Force HTTPS en production pour éviter les problèmes de Mixed Content
+        if (loc.hostname !== 'localhost' && loc.hostname !== '127.0.0.1' && loc.hostname !== '0.0.0.0') {
+            window.API_ORIGIN = 'https://' + loc.host;
+        } else {
+            window.API_ORIGIN = window.location.origin;
+        }
     }
 } catch (e) {}
 

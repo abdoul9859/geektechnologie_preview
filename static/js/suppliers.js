@@ -436,7 +436,7 @@ async function handleFormSubmit(e) {
         if (isEditMode && currentSupplierId) {
             response = await axios.put(`/api/suppliers/${currentSupplierId}`, supplierData);
         } else {
-            response = await axios.post('/api/suppliers', supplierData);
+            response = await axios.post('/api/suppliers/', supplierData);
         }
 
         if (response.status && response.status >= 400) {

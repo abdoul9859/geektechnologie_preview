@@ -1,19 +1,37 @@
 // Lightweight fetch-based HTTP client to replace Axios
+// Version: 2.0 - HTTPS Fix
 (function(){
   const baseURL = (() => {
-    try { return window.location.origin || ''; } catch { return ''; }
+    try { 
+      const loc = window.location;
+      
+      // Force HTTPS in production to avoid mixed content issues
+      if (loc.hostname !== 'localhost' && loc.hostname !== '127.0.0.1' && loc.hostname !== '0.0.0.0') {
+        return 'https://' + loc.host;
+      }
+      
+      // Use current protocol for local development
+      const protocol = loc.protocol;
+      const host = loc.host;
+      const baseUrl = protocol + '//' + host;
+      
+      return baseUrl;
+    } catch (e) { 
+      return ''; 
+    }
   })();
 
   function buildURL(url, params) {
     const hasProto = /^https?:\/\//i.test(url);
-    const u = new URL(hasProto ? url : (baseURL + url), baseURL);
-    // If the page is served over HTTPS, ensure same-host requests also use HTTPS
-    try {
-      const loc = window.location;
-      if (loc && loc.protocol === 'https:' && u.hostname === loc.hostname && u.protocol !== 'https:') {
-        u.protocol = 'https:';
-      }
-    } catch (e) { /* ignore */ }
+    let fullUrl;
+    
+    if (hasProto) {
+      fullUrl = url;
+    } else {
+      fullUrl = baseURL + url;
+    }
+    
+    const u = new URL(fullUrl);
     if (params && typeof params === 'object') {
       Object.entries(params).forEach(([k, v]) => {
         if (v === undefined || v === null) return;

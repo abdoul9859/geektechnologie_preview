@@ -155,10 +155,10 @@ async function loadOverviewData(period) {
         
         // Charger les données
         const [products, invoices, clients, movements] = await Promise.all([
-            fetchData('/api/products'),
-            fetchData('/api/invoices'),
-            fetchData('/api/clients'),
-            fetchData('/api/stock-movements')
+            fetchData('/api/products/'),
+            fetchData('/api/invoices/'),
+            fetchData('/api/clients/'),
+            fetchData('/api/stock-movements/')
         ]);
         
         reportData.overview = {
@@ -187,10 +187,10 @@ async function loadOverviewData(period) {
 
 // Charger les données de stock
 async function loadStockData(period) {
-    const [products, movements] = await Promise.all([
-        fetchData('/api/products'),
-        fetchData('/api/stock-movements')
-    ]);
+        const [products, movements] = await Promise.all([
+            fetchData('/api/products/'),
+            fetchData('/api/stock-movements/')
+        ]);
     
     reportData.stock = {
         products: products || [],
@@ -202,8 +202,8 @@ async function loadStockData(period) {
 // Charger les données financières
 async function loadFinanceData(period) {
     const [invoices, transactions] = await Promise.all([
-        fetchData('/api/invoices'),
-        fetchData('/api/bank-transactions')
+        fetchData('/api/invoices/'),
+        fetchData('/api/bank-transactions/')
     ]);
     
     reportData.finance = {
@@ -215,11 +215,11 @@ async function loadFinanceData(period) {
 
 // Charger les données de ventes
 async function loadSalesData(period) {
-    const [invoices, products, movements] = await Promise.all([
-        fetchData('/api/invoices'),
-        fetchData('/api/products'),
-        fetchData('/api/stock-movements')
-    ]);
+        const [invoices, products, movements] = await Promise.all([
+            fetchData('/api/invoices/'),
+            fetchData('/api/products/'),
+            fetchData('/api/stock-movements/')
+        ]);
     
     reportData.sales = {
         invoices: invoices || [],

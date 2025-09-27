@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: 123
       POSTGRES_DB: geektechnologie_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,8 +36,11 @@ services:
       # Optional initial seed flags (toggle as needed)
       INIT_DB_ON_STARTUP: "true"
       SEED_DEFAULT_DATA: "true"
+      SEED_LARGE_TEST_DATA: "true"
+      SEED_CLIENTS: "50"
+      SEED_PRODUCTS: "100"
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - .:/app
     command: ["python", "-u", "start.py"]

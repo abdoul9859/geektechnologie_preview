@@ -81,6 +81,10 @@ def init_database():
                     {"name": "Accessoires", "requires_variants": False},
                     {"name": "Téléphones fixes", "requires_variants": False},
                     {"name": "Montres connectées", "requires_variants": True},
+                    {"name": "Électroménager", "requires_variants": False},
+                    {"name": "Télévisions", "requires_variants": False},
+                    {"name": "Audio & Son", "requires_variants": False},
+                    {"name": "Gaming", "requires_variants": True},
                 ]
                 
                 for cat in categories:
@@ -94,20 +98,43 @@ def init_database():
                         db.add(category)
                 print("✅ Catégories par défaut créées")
                 
-                # Créer un client par défaut
-                default_client = db.query(Client).filter(Client.name == "Client par défaut").first()
-                if not default_client:
-                    default_client = Client(
-                        name="Client par défaut",
-                        contact="Contact par défaut",
-                        email="client@example.com",
-                        phone="+221 77 123 45 67",
-                        address="Adresse par défaut",
-                        city="Dakar",
-                        country="Sénégal"
-                    )
-                    db.add(default_client)
-                    print("✅ Client par défaut créé")
+                # Créer quelques clients sénégalais par défaut
+                senegal_clients = [
+                    {
+                        "name": "Boutique Tech Plus",
+                        "contact": "Mamadou Diallo",
+                        "email": "contact@techplus.sn",
+                        "phone": "+221 77 123 45 67",
+                        "address": "Avenue Bourguiba, Plateau",
+                        "city": "Dakar",
+                        "country": "Sénégal"
+                    },
+                    {
+                        "name": "Électronique Saint-Louis",
+                        "contact": "Fatou Sarr",
+                        "email": "info@elecstlouis.sn",
+                        "phone": "+221 33 961 23 45",
+                        "address": "Rue de la République",
+                        "city": "Saint-Louis",
+                        "country": "Sénégal"
+                    },
+                    {
+                        "name": "Digital Thies",
+                        "contact": "Ibrahima Ndiaye",
+                        "email": "vente@digitalthies.sn",
+                        "phone": "+221 77 456 78 90",
+                        "address": "Marché Central",
+                        "city": "Thies",
+                        "country": "Sénégal"
+                    }
+                ]
+                
+                for client_data in senegal_clients:
+                    existing_client = db.query(Client).filter(Client.name == client_data["name"]).first()
+                    if not existing_client:
+                        client = Client(**client_data)
+                        db.add(client)
+                print("✅ Clients sénégalais par défaut créés")
             
             # Seed massif de données de test si demandé
             seed_large = os.getenv("SEED_LARGE_TEST_DATA", "false").lower() == "true"
@@ -177,6 +204,11 @@ def seed_large_test_data(db: Session, sizes: dict):
         "DigitalExpress",
         "Afrique Devices",
         "ElectroHub Dakar",
+        "Import Tech Sénégal",
+        "Dakar Digital Solutions",
+        "West Africa Electronics",
+        "Senegal Tech Hub",
+        "Digital Africa SARL",
     ]
     for name in supplier_names:
         s = db.query(Supplier).filter(Supplier.name == name).first()
@@ -192,6 +224,11 @@ def seed_large_test_data(db: Session, sizes: dict):
         ("Tablettes", True),
         ("Accessoires", False),
         ("Montres connectées", True),
+        ("Électroménager", False),
+        ("Télévisions", False),
+        ("Audio & Son", False),
+        ("Gaming", True),
+        ("Téléphones fixes", False),
     ]
     cats = {}
     for (cname, req_var) in cat_specs:
@@ -213,20 +250,37 @@ def seed_large_test_data(db: Session, sizes: dict):
             email=f"client{i+1}@example.com",
             phone=f"+221 77 {random.randint(1000000, 9999999)}",
             address=f"Adresse {i+1}",
-            city=_rand_choice(["Dakar", "Thies", "Saint-Louis", "Touba", "Kaolack"]),
+            city=_rand_choice(["Dakar", "Thies", "Saint-Louis", "Touba", "Kaolack", "Ziguinchor", "Diourbel", "Tambacounda", "Kolda", "Fatick", "Matam", "Kédougou", "Sédhiou", "Louga"]),
             country="Sénégal",
         )
         db.add(c)
 
     # Products with optional variants
-    brands = ["Samsung", "Apple", "Xiaomi", "Infinix", "Tecno", "HP", "Dell", "Lenovo"]
-    conditions = ["neuf", "occasion", "venant"]
+    brands = ["Samsung", "Apple", "Xiaomi", "Infinix", "Tecno", "HP", "Dell", "Lenovo", "Oppo", "Vivo", "Realme", "Huawei", "Nokia", "LG", "Sony", "Canon", "Epson"]
+    conditions = ["neuf", "occasion", "venant", "reconditionné", "garantie"]
     existing_products = db.query(Product).count()
     to_create_products = max(0, sizes.get("products", 0) - existing_products)
     for i in range(to_create_products):
         catname = _rand_choice(list(cats.keys()))
         cat_requires_variants = cats[catname].requires_variants
-        name = f"{_rand_choice(brands)} {_rand_choice(['S','Note','Pro','Air','Plus','Max'])}-{random.randint(1,999)}"
+        # Noms de produits plus réalistes pour le marché sénégalais
+        product_names = {
+            "Smartphones": ["Galaxy A", "iPhone", "Redmi Note", "Infinix Hot", "Tecno Spark", "Oppo A", "Vivo Y"],
+            "Ordinateurs portables": ["ThinkPad", "Inspiron", "Pavilion", "MacBook Air", "IdeaPad", "Vostro"],
+            "Tablettes": ["iPad", "Galaxy Tab", "Mi Pad", "MediaPad", "Surface"],
+            "Accessoires": ["Écouteurs", "Chargeur", "Câble USB", "Coque", "Écran protecteur"],
+            "Montres connectées": ["Galaxy Watch", "Apple Watch", "Mi Band", "Amazfit", "Fitbit"],
+            "Électroménager": ["Réfrigérateur", "Congélateur", "Lave-linge", "Climatiseur", "Ventilateur"],
+            "Télévisions": ["Smart TV", "LED TV", "4K TV", "OLED TV"],
+            "Audio & Son": ["Enceinte Bluetooth", "Home Cinéma", "Amplificateur", "Microphone"],
+            "Gaming": ["PlayStation", "Xbox", "Nintendo Switch", "Manette", "Casque Gaming"],
+            "Téléphones fixes": ["Téléphone IP", "Téléphone sans fil", "Téléphone DECT"]
+        }
+        
+        if catname in product_names:
+            name = f"{_rand_choice(brands)} {_rand_choice(product_names[catname])} {random.randint(1,99)}"
+        else:
+            name = f"{_rand_choice(brands)} {_rand_choice(['S','Note','Pro','Air','Plus','Max'])}-{random.randint(1,999)}"
         p = Product(
             name=name,
             description=f"Produit de test {name}",

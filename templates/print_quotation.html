@@ -16,11 +16,44 @@
         .btn-print{background-color:var(--primary-color);color:#fff;border:none}
         .btn-return{background-color:var(--secondary-color);color:#fff;border:none}
         .page-container{display:flex;justify-content:center;align-items:center;padding:80px 0 0;min-height:100vh;width:100%;box-sizing:border-box}
-        @media print{html,body{width:210mm;height:297mm;margin:0!important;padding:0!important;overflow:hidden}.page-container{padding:0!important;margin:0!important;width:210mm;height:297mm}#quotation-container{margin:0!important;padding:0!important;border:none!important;box-shadow:none!important;width:210mm!important;height:297mm!important;transform:none!important}.no-print{display:none!important}@page{size:A4;margin:0}}
-        .container-a4{width:210mm!important;max-width:210mm!important;height:297mm!important;margin:0!important;padding:0!important;background:#fff!important;box-shadow:0 5px 15px rgba(0,0,0,.08);overflow:hidden;display:flex;flex-direction:column;position:relative}
+        @media print {
+            html, body { width:210mm; height:auto; margin:0 !important; padding:0 !important; overflow:visible; }
+            .page-container { padding:0 !important; margin:0 !important; width:210mm; height:auto; }
+            #quotation-container { margin:0 !important; padding:0 !important; border:none !important; box-shadow:none !important; width:210mm !important; height:auto !important; transform:none !important; min-height:297mm !important; }
+            .no-print { display:none !important; }
+            @page { size:A4; margin:2mm 15mm 0mm 15mm; }
+            .products { 
+                page-break-inside: auto; 
+                margin-top: 0 !important;
+                padding-top: 0 !important;
+            }
+            .product-row { 
+                page-break-inside: avoid; 
+                break-inside: avoid; 
+            }
+            .totals { page-break-before: avoid; break-before: avoid; }
+            .footer { 
+                position: fixed; 
+                bottom: 0; 
+                left: 0; 
+                right: 0; 
+                width: 210mm; 
+                height: 20mm; 
+                background: #f8f9fa; 
+                border-top: 1px solid #e0e0e0; 
+                padding: 6px 25mm; 
+                font-size: 10px; 
+                z-index: 1000;
+                page-break-inside: avoid; 
+                break-inside: avoid; 
+                margin: 0 !important;
+                box-sizing: border-box;
+            }
+        }
+        .container-a4{width:210mm!important;max-width:210mm!important;min-height:297mm!important;margin:0!important;padding:0!important;background:#fff!important;box-shadow:0 5px 15px rgba(0,0,0,.08);overflow:visible;display:flex;flex-direction:column;position:relative}
         .header{background:#fff;padding:28px 32px 22px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:flex-start;width:100%}
         .logo-section{display:flex;align-items:center;gap:16px}
-        .logo{max-width:80px;max-height:80px;object-fit:contain}
+        .logo{max-width:150px;max-height:150px;object-fit:contain}
         .company-info h1{font-size:22px;font-weight:800;margin:0;color:#111}
         .company-info p{margin:2px 0;font-size:12px;color:var(--text-secondary)}
         .company-info{display:flex;flex-direction:column;justify-content:center}
@@ -52,6 +85,39 @@
         .footer-content{display:flex;justify-content:space-between;gap:16px}
         .footer-section h4{font-size:12px;font-weight:600;color:#333;margin:0 0 6px 0;text-transform:uppercase}
         .footer-section p{margin:2px 0;color:#666;font-size:11px}
+        
+        /* Footer fixe pour l'impression */
+        @media print {
+            .footer-content { 
+                display: flex; 
+                justify-content: space-between; 
+                gap: 15px; 
+                align-items: center;
+                height: 100%;
+                padding: 0;
+            }
+            .footer-section { 
+                text-align: center; 
+                flex: 1; 
+            }
+            .footer-section h4 { 
+                font-size: 10px; 
+                font-weight: 600; 
+                color: #333; 
+                margin: 0 0 3px 0; 
+                text-transform: uppercase; 
+            }
+            .footer-section p { 
+                margin: 0; 
+                color: #666; 
+                font-size: 9px; 
+                line-height: 1.3;
+            }
+        }
+        .products{page-break-inside:auto}
+        .product-row{page-break-inside:avoid;break-inside:avoid}
+        .totals{page-break-before:avoid;break-before:avoid}
+        .footer{page-break-inside:avoid;break-inside:avoid}
     </style>
 </head>
 <body>

@@ -42,6 +42,19 @@ def wait_for_database():
         print(f"❌ Erreur lors de la vérification de la base de données: {e}")
         return False
 
+def create_tables():
+    """Créer les tables de base de données"""
+    print("🔄 Création des tables de base de données...")
+    
+    try:
+        from app.database import create_tables as create_tables_func
+        create_tables_func()
+        print("✅ Tables créées avec succès")
+        return True
+    except Exception as e:
+        print(f"❌ Erreur lors de la création des tables: {e}")
+        return False
+
 def run_migrations():
     """Exécuter les migrations"""
     print("🔄 Exécution des migrations...")
@@ -68,6 +81,11 @@ def main():
     # Attendre la base de données
     if not wait_for_database():
         print("❌ Impossible de démarrer sans base de données")
+        sys.exit(1)
+    
+    # Créer les tables de base
+    if not create_tables():
+        print("❌ Impossible de démarrer sans tables")
         sys.exit(1)
     
     # Exécuter les migrations

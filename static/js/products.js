@@ -704,7 +704,7 @@ async function loadCategories() {
     try {
         // Utiliser axios directement pour éviter les problèmes avec apiRequest
         console.log('📡 loadCategories - Appel API /api/products/categories...');
-        const response = await axios.get('/api/products/categories');
+        const response = await axios.get('/api/products/categories/');
         let categories = [];
         const data = response.data;
 
@@ -1358,7 +1358,7 @@ async function saveProduct() {
                 data: productData
             });
         } else {
-            response = await apiRequest('/api/products', {
+            response = await apiRequest('/api/products/', {
                 method: 'POST',
                 data: productData
             });

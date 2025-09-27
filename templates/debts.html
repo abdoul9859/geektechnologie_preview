@@ -422,5 +422,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-    <script src="{{ url_for('static', path='js/debts.js') }}?v=2.2"></script>
+    <script src="/static/js/debts.js?v={{ ASSET_VERSION }}"></script>
 {% endblock %}

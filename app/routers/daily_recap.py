@@ -288,7 +288,7 @@ async def get_daily_recap_stats(
                 "net_revenue": net_revenue,
                 "bank_entries_list": [
                     {
-                        "id": t.transaction_id,
+                        "id": t.id,
                         "motif": t.motif,
                         "description": t.description,
                         "amount": float(t.amount or 0),
@@ -299,7 +299,7 @@ async def get_daily_recap_stats(
                 ],
                 "bank_exits_list": [
                     {
-                        "id": t.transaction_id,
+                        "id": t.id,
                         "motif": t.motif,
                         "description": t.description,
                         "amount": float(t.amount or 0),

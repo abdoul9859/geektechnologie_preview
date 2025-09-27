@@ -683,11 +683,21 @@ async def print_delivery_note_page(request: Request, note_id: int, db: Session =
 # Gestion des erreurs
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: HTTPException):
-    return templates.TemplateResponse("404.html", {"request": request}, status_code=404)
+    db = next(get_db())
+    try:
+        global_settings = _load_company_settings(db)
+    except:
+        global_settings = {}
+    return templates.TemplateResponse("404.html", {"request": request, "global_settings": global_settings}, status_code=404)
 
 @app.exception_handler(500)
 async def internal_error_handler(request: Request, exc: HTTPException):
-    return templates.TemplateResponse("500.html", {"request": request}, status_code=500)
+    db = next(get_db())
+    try:
+        global_settings = _load_company_settings(db)
+    except:
+        global_settings = {}
+    return templates.TemplateResponse("500.html", {"request": request, "global_settings": global_settings}, status_code=500)
 
 if __name__ == "__main__":
     uvicorn.run(
